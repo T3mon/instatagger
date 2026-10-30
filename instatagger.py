@@ -207,6 +207,8 @@ def main():
             for k, good in zip(retry, pool.map(prepare, [jobs[k] for k in retry])):
                 ok[k] = good
         items = [it for (_, it), good in zip(photos.values(), ok) if good]
+        if len(items) < len(photos) / 2:  # e.g. Wi-Fi dropped mid-run: don't replace a good earlier run with a handful of photos
+            sys.exit(f"Only {len(items)} of {len(photos)} photos could be downloaded (network down?). Nothing saved; run it again.")
         (out / "items.json").write_text(json.dumps(items), encoding="utf-8")
         (out / "wd.npy").unlink(missing_ok=True)  # new set of photos: scores are recomputed below
     if not (out / "wd.npy").exists():

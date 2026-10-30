@@ -52,6 +52,13 @@ def profile(handle):
     return info
 
 
+def walk(folder):
+    """Every file under folder. On Windows the folder listing already carries each file's size,
+    so this skips a disk check per file (8.5 s of the Models page's 10 on an exFAT drive)."""
+    for e in os.scandir(folder):
+        yield from walk(e.path) if e.is_dir() else [e]
+
+
 def model_stats(folder, cols):
     """Everything the Models page shows about one model, from her saved files (no Instagram calls)."""
     d = json.loads((folder / "data.json").read_text(encoding="utf-8"))
@@ -66,7 +73,7 @@ def model_stats(folder, cols):
     liked = Counter(t for it in seen for t in it["t"] if t not in levels)
     lift = {t: median(it["l"] for it in seen if t in it["t"]) / mid for t, n in liked.items() if n >= 10}  # vs her median
     scored = bool(items) and all("x" in it for it in items)
-    files = [f for f in folder.rglob("*") if f.is_file()]
+    files = list(walk(folder))
     by_post = {it["c"]: it for it in sorted(seen, key=lambda it: (it["l"], -it["n"]))}  # a post's first slide, least liked first
     show = list(by_post.values())[::-1][:4] or sorted(items, key=lambda it: it["d"])[-4:]
     return {"handle": d["handle"], "photos": len(items), "posts": posts, "skipped": d["skipped"],
@@ -78,7 +85,7 @@ def model_stats(folder, cols):
             "top": tags.most_common(8), "lift": sorted(([t, round(x, 2)] for t, x in lift.items()), key=lambda r: -r[1])[:5],
             "best": [{k: it[k] for k in "cnfl"} for it in show], "years": dict(sorted(Counter(d[:4] for d in dates).items())),
             "removed": len(instatagger.saved_set(folder / "removed.json")),
-            "thumbs": instatagger.disk_size([f for f in files if f.parent.name == "thumbs"]), "disk": instatagger.disk_size(files),
+            "thumbs": instatagger.disk_size([f for f in files if Path(f.path).parent.name == "thumbs"]), "disk": instatagger.disk_size(files),
             "files": len(files), "updated": datetime.fromtimestamp((folder / "data.json").stat().st_mtime).isoformat(timespec="minutes")}
 
 

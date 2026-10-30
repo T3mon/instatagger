@@ -37,9 +37,13 @@
   #limit { width: 80px; margin: 0 4px; }
   #info table { border-collapse: collapse; margin: 12px 0; }
   #info td { padding: 3px 14px 3px 0; vertical-align: top; }
-  #info td:first-child, #eta, #progress { color: var(--muted); }
-  #info td:last-child { white-space: pre-line; }
+  #info td:first-child, #eta { color: var(--muted); }
+  #msg { color: #ff9592; }
   #pbar { width: 100%; accent-color: var(--accent); }
+  #runsteps { list-style: none; padding: 0; margin: 8px 0; }
+  #runsteps li { margin: 8px 0; }
+  #runsteps li.todo { color: var(--muted); }
+  #runsteps small { display: block; color: var(--muted); margin: 2px 0 0 20px; }
   .row { display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px; }
   main { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 4px; padding: 4px 16px 16px; }
   main a { position: relative; display: block; aspect-ratio: 4 / 5; background: var(--panel); }
@@ -72,18 +76,21 @@
 <dialog id="addbox">
   <h2>Add model</h2>
   <form id="lookup">
-    <label>Instagram link or handle<input id="who" required placeholder="https://www.instagram.com/..."></label>
-    <div class="row"><button>Look up</button></div>
+    <label>Instagram link or handle<input id="who" required autocomplete="off" placeholder="Paste a profile link: it's looked up as you paste"></label>
   </form>
   <div id="info"></div>
   <div id="go" hidden>
     <label><input type="checkbox" id="limited" checked> Only the newest<input type="number" id="limit" value="100" min="1" step="1">posts</label>
     <p id="eta"></p>
+    <p id="msg" role="alert"></p>
     <div class="row"><button id="start">Add her</button></div>
   </div>
-  <p id="progress" role="status"></p>
-  <progress id="pbar" hidden></progress>
-  <div class="row"><button id="reload" hidden onclick="location.reload()">Reload page</button><button id="close">Close</button></div>
+  <div id="run" hidden>
+    <p id="runhead" aria-live="polite"></p>
+    <ol id="runsteps"></ol>
+    <progress id="pbar"></progress>
+  </div>
+  <div class="row"><button id="close">Close</button></div>
 </dialog>
 <script>
 const D = /*DATA*/null;  // filled in by instatagger.py
@@ -133,17 +140,79 @@ if (D.stats) $("stats").innerHTML = `<tr>${cols.map(([, h]) => `<th>${h}</th>`).
   D.stats.map(s => `<tr>${cols.map(([k]) => `<td>${esc(s[k])}</td>`).join("")}</tr>`).join("");
 render();
 
-let P = null, polling = false;  // the looked-up profile
+let P = null, polling = false, seq = 0, timer;  // P: the looked-up profile
 const api = (path, opts = {}) => fetch(path, {...opts, headers: {"X-Instatagger": "1", "Content-Type": "application/json"}})
   .then(async r => { const j = await r.json(); if (!r.ok) throw new Error(j.error); return j; });
 const fmt = s => s < 90 ? `${Math.round(s)} s` : `${Math.round(s / 60)} min`;
+const handleOf = text => text.trim().split("instagram.com/").pop().split("/")[0].split("?")[0].replace(/^@/, "");
+const daysAgo = d => { const n = Math.round((Date.now() - Date.parse(d)) / 864e5); return n < 1 ? "today" : n === 1 ? "yesterday" : `${n} days ago`; };
 
-function eta() {  // measured on earlier runs: a page of 12 posts every ~10 s, ~3 photos a post, ~2 downloads/s,
-  // and tagging re-scores her whole library (photos already added too), plus ~15 s to start up
+function eta() {  // measured on earlier runs: a page of 12 posts every ~10 s, ~2 downloads/s, ~0.25 s to score a photo and
+  // ~15 s to start; tagging re-scores her whole library. Photos per post come from her own newest posts when known.
   const posts = $("limited").checked ? Math.min(Math.max(Math.floor(+$("limit").value) || 0, 0), P.posts) : P.posts;
-  const photos = posts * 3, list = Math.ceil(posts / 12) * 10.5, down = photos / 2, score = 30 + (photos + P.have) * 0.25;
+  const perPost = P.recent ? P.photo_posts / P.recent * P.photos_per_post : 3;
+  const photos = Math.round(posts * perPost), list = Math.ceil(posts / 12) * 10.5, down = photos / 2, score = 30 + (photos + P.have) * 0.25;
   $("eta").textContent = `About ${fmt(15 + list + down + score)} for ${posts.toLocaleString()} posts (~${photos.toLocaleString()} photos): ` +
     `listing ${fmt(list)}, downloading ${fmt(down)}, tagging ${fmt(score)}. Downloads depend on your connection.`;
+}
+
+async function lookup() {
+  const handle = handleOf($("who").value);
+  if (!handle || handle === P?.handle) return;
+  $("go").hidden = true;
+  if (!/^\w(?:[\w.]{0,28}\w)?$/.test(handle)) return $("info").textContent = "That doesn't look like an Instagram link or handle.";
+  const mine = ++seq;
+  $("info").textContent = `Looking up @${handle} on Instagram...`;
+  let p;
+  try { p = await api("/api/profile?u=" + encodeURIComponent(handle)); }
+  catch (err) { if (mine === seq) $("info").textContent = err.message; return; }
+  if (mine !== seq) return;  // a newer look-up has started
+  P = p;
+  const row = (k, v) => `<tr><td>${k}</td><td>${v}</td></tr>`;
+  let rows = row("Name", esc(P.name || "-") + (P.verified ? " (verified)" : "")) + row("Handle", "@" + esc(P.handle)) +
+    row("Posts", P.posts.toLocaleString()) + row("Followers", P.followers.toLocaleString());
+  if (P.recent) rows += row("Last post", `${P.last_post} (${daysAgo(P.last_post)})`) + row("Posting", `about ${P.per_week} posts a week`) +
+    row(`Newest ${P.recent} posts`, `${P.photo_posts} with photos, ${P.photos_per_post} photos each on average`) +
+    row("Likes", P.likes === null ? "hidden on her posts" : `about ${P.likes.toLocaleString()} a post (${P.like_rate}% of her followers)`);
+  if (P.have) rows += row("Already added", `${P.have.toLocaleString()} photos. Running again adds her new posts.`);
+  $("info").innerHTML = `<table>${rows}</table>` + (P.private ? "<p>Private account you don't follow, so it can't be added.</p>" : "");
+  $("go").hidden = P.private;
+  if (!P.private) eta();
+}
+
+const STEPS = [
+  ["Listing posts", "Going through her posts on Instagram, 12 per page, one page every 6-12 s so your account doesn't get flagged. Videos and reels are skipped."],
+  ["Downloading photos", "8 at a time. The full photo only stays in memory; a 360 px preview is saved. Failed downloads get one retry."],
+  ["Scoring and tagging", "The booru tagger scores every photo on your GPU. Photos without a girl are skipped and deleted, then your tags are applied and the pages rebuilt."],
+];
+
+function showRun(s) {  // s.log: [seconds since start, line] from the run's output
+  const starts = [1, 2, 3].map(n => s.log.findIndex(([, l]) => l.startsWith(`Step ${n}/3`)));
+  let bar = null;
+  $("runsteps").innerHTML = STEPS.map(([name, desc], k) => {
+    if (starts[k] < 0) return `<li class="todo">○ ${k + 1}. ${name}</li>`;
+    const next = starts.slice(k + 1).find(i => i >= 0);
+    const lines = s.log.slice(starts[k], next).map(([, l]) => l.trim());
+    const t0 = s.log[starts[k]][0], t1 = next === undefined ? s.elapsed : s.log[next][0];
+    const m = lines.map(l => l.match(/^(\d+)\/(\d+) (posts|photos) (?:listed|downloaded|scored)(.*)/)).filter(Boolean).at(-1);
+    const detail = m ? `${(+m[1]).toLocaleString()} of ${(+m[2]).toLocaleString()} ${m[3]}${m[4]}` : "";
+    if (next === undefined && s.running) {  // the step it's on now
+      const sub = lines.filter(l => /^[a-z]/.test(l) && !/warn/i.test(l)).at(-1);  // e.g. "loading the tagger"
+      const left = m && +m[1] ? (m[2] - m[1]) / (m[1] / Math.max(s.elapsed - t0, 1)) : 0;
+      bar = m ? [+m[1], +m[2]] : [];
+      return `<li>● ${k + 1}. ${name}: ${[detail, sub].filter(Boolean).join(", ") || "starting"}` +
+        `${left >= 1 ? `, about ${fmt(left)} left` : ""}<small>${desc}</small></li>`;
+    }
+    return `<li>✓ ${k + 1}. ${name}: ${detail || "done"} (${fmt(t1 - t0)})</li>`;
+  }).join("");
+  const end = s.log.map(([, l]) => l.match(/^(\d+) photos ->.*\| (\d+) without a girl/)).filter(Boolean).at(-1);
+  const why = [...s.log].reverse().map(([, l]) => l).find(l => /Only|No photos|stopped|rror|Not an Instagram/.test(l)) || s.log.at(-1)?.[1] || "unknown error";
+  $("runhead").textContent = s.running ? `Adding @${s.handle}: ${fmt(s.elapsed)} so far.` + (starts[0] < 0 ? " Starting up (loading Python and the tagger)." : "")
+    : s.code === 0 && end ? `Done in ${fmt(s.elapsed)}: @${s.handle} now has ${(+end[1]).toLocaleString()} photos (${end[2]} without a girl skipped). Refresh the page to see her.`
+    : `Adding @${s.handle} stopped: ${why.trim()}`;
+  const b = $("pbar");
+  b.hidden = !s.running;
+  if (bar && bar.length) { b.max = bar[1]; b.value = bar[0]; } else b.removeAttribute("value");  // no count yet: moving bar
 }
 
 async function poll() {
@@ -152,22 +221,9 @@ async function poll() {
   for (;;) {
     const s = await api("/api/status").catch(() => null);
     if (!s || !s.handle) break;
-    const step = (s.log.filter(l => l.startsWith("Step ")).at(-1) || "Starting").replace(/^Step (\d)\/3: /, "Step $1 of 3: ");
-    const last = [...s.log].reverse().find(l => /^Step |\d+\/\d+ (posts listed|photos downloaded)/.test(l)) || "";
-    const count = !last.startsWith("Step ") && last.match(/(\d+)\/(\d+)/);
-    const bar = $("pbar");
-    bar.hidden = !s.running;
-    if (count) { bar.max = +count[2]; bar.value = +count[1]; } else bar.removeAttribute("value");  // no count yet: moving bar
-    if (s.running) {
-      $("progress").textContent = `Adding @${s.handle} (${fmt(s.elapsed)} so far). ${step}` + (count ? ` (${(+count[1]).toLocaleString()} of ${(+count[2]).toLocaleString()})` : "");
-    } else {
-      const done = s.log.map(l => l.match(/^(\d+) photos ->/)).filter(Boolean).at(-1);
-      const why = [...s.log].reverse().find(l => /Only|No photos|stopped|rror|Not an Instagram/.test(l)) || s.log.at(-1) || "unknown error";
-      $("progress").textContent = s.code === 0 ? `Done: @${s.handle} now has ${done ? (+done[1]).toLocaleString() + " photos" : "her page"}, in ${fmt(s.elapsed)}.`
-        : `Adding @${s.handle} stopped: ${why.trim()}`;
-      $("reload").hidden = s.code !== 0;
-      break;
-    }
+    $("run").hidden = false;
+    showRun(s);
+    if (!s.running) break;
     await new Promise(r => setTimeout(r, 2000));
   }
   polling = false;
@@ -179,29 +235,18 @@ $("add").onclick = () => {
   poll();
 };
 $("close").onclick = () => $("addbox").close();
-$("lookup").onsubmit = async e => {
-  e.preventDefault();
-  $("go").hidden = true;
-  $("info").textContent = "Looking up...";
-  try { P = await api("/api/profile?u=" + encodeURIComponent($("who").value.trim())); }
-  catch (err) { $("info").textContent = err.message; return; }
-  const row = (k, v) => `<tr><td>${k}</td><td>${v}</td></tr>`;
-  $("info").innerHTML = "<table>" + row("Name", esc(P.name || "-") + (P.verified ? " (verified)" : "")) + row("Handle", "@" + esc(P.handle)) +
-    row("Posts", P.posts.toLocaleString()) + row("Followers", P.followers.toLocaleString()) + row("Following", P.following.toLocaleString()) +
-    row("Bio", esc(P.bio || "-")) + (P.have ? row("Already added", `${P.have.toLocaleString()} photos. Running again only downloads new posts.`) : "") +
-    "</table>" + (P.private ? "<p>Private account you don't follow, so it can't be added.</p>" : "");
-  $("go").hidden = P.private;
-  if (!P.private) eta();
-};
+$("who").oninput = () => { clearTimeout(timer); timer = setTimeout(lookup, 700); };  // looks up once you stop typing or paste
+$("lookup").onsubmit = e => { e.preventDefault(); clearTimeout(timer); lookup(); };
 $("limited").onchange = $("limit").oninput = () => P && eta();
 $("start").onclick = async () => {
   const n = Math.floor(+$("limit").value);
-  if ($("limited").checked && !(n >= 1)) return $("progress").textContent = "Enter how many posts: 1 or more.";
+  $("msg").textContent = "";
+  if ($("limited").checked && !(n >= 1)) return $("msg").textContent = "Enter how many posts: 1 or more.";
   try {
     await api("/api/add", {method: "POST", body: JSON.stringify({u: P.handle, limit: $("limited").checked ? n : null})});
     $("go").hidden = true;
     poll();
-  } catch (err) { $("progress").textContent = err.message; }
+  } catch (err) { $("msg").textContent = err.message; }
 };
 </script>
 </body>

@@ -88,14 +88,26 @@ def call(method, path, body=None, header=True):
 assert call("GET", "/api/status", header=False)[0] == 403
 assert call("POST", "/api/add", {"u": "../x"})[0] == 400
 assert call("POST", "/api/add", {"u": "someone", "limit": 0})[0] == 400
-serve.start("someone", [sys.executable, "-c", "print('Listing posts'); print('3 photos -> done')"])
+serve.start("someone", [sys.executable, "-c", "print('Listing posts'); print('skipped x.jpg: timeout'); print('3 photos -> done')"])
 serve.run["proc"].wait()
 for _ in range(50):
-    if len(serve.run["log"]) == 2:
+    if serve.run["ended"]:
         break
     time.sleep(0.05)
 code, status = call("GET", "/api/status")
 assert code == 200 and status["handle"] == "someone" and not status["running"] and status["code"] == 0, status
-assert status["log"] == ["Listing posts", "3 photos -> done"], status
+assert [line for _, line in status["log"]] == ["Listing posts", "3 photos -> done"], status  # per-photo errors are left out
 srv.shutdown()
+
+# recent_stats: newest posts without pinned ones; photo share, slides per photo post, likes (3 = hidden)
+day = lambda d: datetime(2026, 10, d)
+newest = [types.SimpleNamespace(is_pinned=True, is_video=False, mediacount=1, likes=9, date_utc=day(1)),
+          types.SimpleNamespace(is_pinned=False, is_video=False, mediacount=4, likes=100, date_utc=day(29)),
+          types.SimpleNamespace(is_pinned=False, is_video=True, mediacount=1, likes=300, date_utc=day(22)),
+          types.SimpleNamespace(is_pinned=False, is_video=False, mediacount=2, likes=200, date_utc=day(15))]
+got = serve.recent_stats(newest, 10_000)
+assert (got["recent"], got["last_post"], got["photo_posts"], got["photos_per_post"], got["likes"], got["like_rate"]) == \
+    (3, "2026-10-29", 2, 3.0, 200, 2.0), got
+assert got["per_week"] == 1.5, got  # 3 posts over 14 days
+assert serve.recent_stats([types.SimpleNamespace(is_pinned=False, is_video=False, mediacount=1, likes=3, date_utc=day(2))], 10)["likes"] is None
 print("ok")

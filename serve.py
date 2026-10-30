@@ -6,7 +6,9 @@ import sys
 import threading
 import time
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+from itertools import islice
 from pathlib import Path
+from statistics import median
 from urllib.parse import parse_qs, urlparse
 
 import instaloader
@@ -15,17 +17,34 @@ import instatagger
 
 HERE = Path(__file__).parent
 PORT = 8765
-run = {"handle": None, "proc": None, "log": []}  # one run at a time, so Instagram only ever sees one slow listing
+run = {"handle": None, "proc": None, "log": [], "started": 0, "ended": None}  # one run at a time: Instagram sees one listing
+
+
+def recent_stats(posts, followers):
+    """What her newest posts say. Only fields that come with the feed page: reading comments costs a request per post,
+    and Instagram answered that with "feedback_required"."""
+    posts = [x for x in posts if not getattr(x, "is_pinned", False)]  # pinned posts can be years old
+    if not posts:
+        return {}
+    photo = [x for x in posts if not x.is_video]
+    days = max((posts[0].date_utc - posts[-1].date_utc).total_seconds() / 86400, 1)
+    likes = int(median(x.likes for x in posts))
+    return {"recent": len(posts), "last_post": posts[0].date_utc.date().isoformat(), "per_week": round(len(posts) / days * 7, 1),
+            "photo_posts": len(photo), "photos_per_post": round(sum(x.mediacount for x in photo) / len(photo), 1) if photo else 0,
+            "likes": None if likes <= 3 else likes,  # Instagram reports 3 when likes are hidden
+            "like_rate": None if likes <= 3 else round(likes / max(followers, 1) * 100, 2)}
 
 
 def profile(handle):
-    """Public stats of an account (one Instagram request), plus how many of her photos are already here."""
+    """Her account (one Instagram request), her newest page of posts (one more) and how much of her is already here."""
     p = instaloader.Profile.from_username(instatagger.login(None).context, handle)
     data = HERE / "out" / p.username / "data.json"
-    return {"handle": p.username, "name": p.full_name, "posts": p.mediacount, "followers": p.followers,
-            "following": p.followees, "verified": p.is_verified, "bio": p.biography,
+    info = {"handle": p.username, "name": p.full_name, "posts": p.mediacount, "followers": p.followers, "verified": p.is_verified,
             "private": p.is_private and not p.followed_by_viewer,
             "have": len(json.loads(data.read_text(encoding="utf-8"))["items"]) if data.exists() else 0}
+    if not info["private"] and p.mediacount:
+        info.update(recent_stats(list(islice(p.get_posts(), 12)), p.followers))
+    return info
 
 
 def start(handle, cmd):
@@ -35,8 +54,8 @@ def start(handle, cmd):
 
     def read():
         for line in proc.stdout:
-            if not line.startswith("skipped "):  # per-photo download errors would push the progress lines out
-                run["log"].append(line.rstrip())
+            if not line.startswith("skipped "):  # per-photo download errors; the run prints a total
+                run["log"].append([round(time.time() - run["started"]), line.rstrip()])
         run["ended"] = time.time()
 
     threading.Thread(target=read, daemon=True).start()
@@ -72,7 +91,7 @@ class Handler(SimpleHTTPRequestHandler):
             proc = run["proc"]
             elapsed = (run["ended"] or time.time()) - run["started"] if proc else 0
             return self.reply(200, {"handle": run["handle"], "running": bool(proc and proc.poll() is None),
-                                    "code": proc.poll() if proc else None, "elapsed": round(elapsed), "log": run["log"][-40:]})
+                                    "code": proc.poll() if proc else None, "elapsed": round(elapsed), "log": run["log"]})
         if url.path == "/api/profile":
             try:
                 return self.reply(200, profile(instatagger.handle_from(parse_qs(url.query).get("u", [""])[0])))

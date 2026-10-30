@@ -87,15 +87,16 @@ def list_photos(handle, limit=None):
     photos = []
     try:
         profile = instaloader.Profile.from_username(L.context, handle)
+        total = min(limit or profile.mediacount, profile.mediacount)
         for i, post in enumerate(islice(profile.get_posts(), limit), 1):
-            if i % 24 == 0:
-                print(f"  {i}/{min(limit or profile.mediacount, profile.mediacount)} posts listed", flush=True)
             nodes = (post.get_sidecar_nodes() if post.typename == "GraphSidecar"
                      else [instaloader.PostSidecarNode(post.is_video, post.url, None)])
             for num, node in enumerate(nodes, 1):
                 if not node.is_video:
                     photos.append((node.display_url, {"c": post.shortcode, "n": num, "l": post.likes or 0,
                                                       "d": post.date_utc.date().isoformat(), "f": f"{post.shortcode}_{num}.jpg"}))
+            if i % 12 == 0 or i == total:
+                print(f"  {i}/{total} posts listed, {len(photos)} photos found", flush=True)
     except instaloader.exceptions.InstaloaderException as e:  # rate limit or expired login halfway: keep what we got
         print("Instagram stopped the listing:", e)
     if not photos:
@@ -126,6 +127,7 @@ def prepare(job):
 
 def booru_scores(thumbs):
     """Probability of every booru tag for each preview; the tagger wants white-padded squares in BGR."""
+    print("  loading the tagger", flush=True)
     dtype = torch.float16 if DEV == "cuda" else torch.float32
     model = timm.create_model("hf-hub:" + MODEL, pretrained=True).eval().to(DEV, dtype)
     transform = create_transform(**resolve_data_config(model.pretrained_cfg, model=model))
@@ -135,6 +137,8 @@ def booru_scores(thumbs):
                          for f in thumbs[i:i + 16]])[:, [2, 1, 0]]
         with torch.no_grad():
             out.append(torch.sigmoid(model(x.to(DEV, dtype)).float()).cpu())
+        if (i // 16) % 10 == 9 or i + 16 >= len(thumbs):
+            print(f"  {min(i + 16, len(thumbs))}/{len(thumbs)} photos scored", flush=True)
     return torch.cat(out).numpy().astype(np.float16)
 
 
@@ -242,11 +246,14 @@ def main():
             ok = []
             for k, good in enumerate(pool.map(prepare, jobs), 1):
                 ok.append(good)
-                if k % 50 == 0 or k == len(jobs):
+                if k % 25 == 0 or k == len(jobs):
                     print(f"  {k}/{len(jobs)} photos downloaded", flush=True)
             retry = [k for k, good in enumerate(ok) if not good]  # timeouts come in bursts when the line is busy
+            if retry:
+                print(f"  retrying {len(retry)} failed downloads", flush=True)
             for k, good in zip(retry, pool.map(prepare, [jobs[k] for k in retry])):
                 ok[k] = good
+        print(f"  {sum(ok)}/{len(jobs)} photos downloaded, {len(jobs) - sum(ok)} failed", flush=True)
         items = [it for (_, it), good in zip(photos.values(), ok) if good]
         if len(items) < len(photos) / 2:  # e.g. Wi-Fi dropped mid-run: don't replace a good earlier run with a handful of photos
             sys.exit(f"Only {len(items)} of {len(photos)} photos could be downloaded (network down?). Nothing saved; run it again.")
@@ -261,9 +268,11 @@ def main():
         np.save(out / "wd.npy", booru_scores([out / "thumbs" / it["f"] for it in items]))
     wd = np.load(out / "wd.npy")
     groups = parse_tags((HERE / "tags.txt").read_text(encoding="utf-8"))
+    print("  applying your tags", flush=True)
     tags = tag(wd, groups)
     extra = {name for g, group in groups if g.lower() == "skip" for name, _, _ in group}
     drop = no_girl(wd) | np.array([bool(extra.intersection(t)) for t in tags])
+    print(f"  skipping photos without a girl: {int(drop.sum())}", flush=True)
     if drop.any():  # skipped photos lose their preview and scores, and are remembered so they're never fetched again
         for it in [it for it, d in zip(items, drop) if d]:
             (out / "thumbs" / it["f"]).unlink(missing_ok=True)
@@ -277,6 +286,7 @@ def main():
     groups = [(g, group) for g, group in groups if g.lower() != "skip"]
     data = {"handle": handle, "items": items, "skipped": len(skipped), "groups": [[g, [name for name, _, _ in group]] for g, group in groups]}
     (out / "data.json").write_text(json.dumps(data), encoding="utf-8")
+    print("  building pages", flush=True)
     build_pages()
     for g, group in groups:
         print(f"{g}: " + ", ".join(f"{name} {sum(name in it['t'] for it in items)}" for name, _, _ in group))

@@ -1,6 +1,10 @@
 """Run: python test_instatagger.py"""
+import http.client
 import json
+import sys
 import tempfile
+import threading
+import time
 import types
 from datetime import datetime
 from pathlib import Path
@@ -66,4 +70,32 @@ assert page["groups"][0] == ["Model", ["@a", "@b"]]
 assert [it["h"] for it in page["items"]] == ["a", "b"] and page["items"][0]["t"] == ["ass", "questionable", "@a"]
 assert abs(page["items"][0]["x"] - 1.9) < 0.01 and "x" not in page["items"][1]
 assert [(r["model"], r["posts"], r["skipped"]) for r in page["stats"]] == [("@a", 1, 1), ("@b", 1, 1), ("All", 2, 2)]
+
+# serve.py: API needs the X-Instatagger header, checks input, and reports a run's output (a fake run, no Instagram)
+import serve  # noqa: E402
+
+srv = serve.ThreadingHTTPServer(("127.0.0.1", 0), serve.Handler)
+threading.Thread(target=srv.serve_forever, daemon=True).start()
+
+
+def call(method, path, body=None, header=True):
+    c = http.client.HTTPConnection("127.0.0.1", srv.server_port)
+    c.request(method, path, body=json.dumps(body) if body else None, headers={"X-Instatagger": "1"} if header else {})
+    r = c.getresponse()
+    return r.status, json.loads(r.read())
+
+
+assert call("GET", "/api/status", header=False)[0] == 403
+assert call("POST", "/api/add", {"u": "../x"})[0] == 400
+assert call("POST", "/api/add", {"u": "someone", "limit": 0})[0] == 400
+serve.start("someone", [sys.executable, "-c", "print('Listing posts'); print('3 photos -> done')"])
+serve.run["proc"].wait()
+for _ in range(50):
+    if len(serve.run["log"]) == 2:
+        break
+    time.sleep(0.05)
+code, status = call("GET", "/api/status")
+assert code == 200 and status["handle"] == "someone" and not status["running"] and status["code"] == 0, status
+assert status["log"] == ["Listing posts", "3 photos -> done"], status
+srv.shutdown()
 print("ok")

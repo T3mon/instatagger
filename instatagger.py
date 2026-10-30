@@ -70,20 +70,26 @@ class Polite(instaloader.RateController):
         time.sleep(random.uniform(6, 12))  # one page of 12 posts per 6-12 s, so Instagram doesn't flag the account
 
 
-def list_photos(handle, limit=None):
-    """(url, item) for every photo slide of the newest `limit` posts (None = all); videos are skipped."""
+def login(rate_controller=Polite):
+    """Instaloader logged in as you, from the sessionid cookie in session.txt."""
     session_file = HERE / "session.txt"
     session = session_file.read_text(encoding="utf-8").strip() if session_file.exists() else ""
     if not session:
         sys.exit(f"Paste your Instagram sessionid cookie into {session_file}")
-    L = instaloader.Instaloader(quiet=True, rate_controller=Polite)
+    L = instaloader.Instaloader(quiet=True, rate_controller=rate_controller)
     L.load_session("me", {"sessionid": session, "csrftoken": secrets.token_hex(16), "ds_user_id": session.split("%3A")[0]})
+    return L
+
+
+def list_photos(handle, limit=None):
+    """(url, item) for every photo slide of the newest `limit` posts (None = all); videos are skipped."""
+    L = login()
     photos = []
     try:
         profile = instaloader.Profile.from_username(L.context, handle)
         for i, post in enumerate(islice(profile.get_posts(), limit), 1):
-            if i % 120 == 0:
-                print(f"  {i}/{limit or profile.mediacount} posts listed", flush=True)
+            if i % 24 == 0:
+                print(f"  {i}/{min(limit or profile.mediacount, profile.mediacount)} posts listed", flush=True)
             nodes = (post.get_sidecar_nodes() if post.typename == "GraphSidecar"
                      else [instaloader.PostSidecarNode(post.is_video, post.url, None)])
             for num, node in enumerate(nodes, 1):
@@ -227,21 +233,30 @@ def main():
     if "--retag" in sys.argv:
         items = json.loads((out / "items.json").read_text(encoding="utf-8"))
     else:
-        print("Listing posts, one page of 12 every 6-12 s...", flush=True)
+        print("Step 1/3: listing posts, one page of 12 every 6-12 s", flush=True)
         photos = {it["f"]: (url, it) for url, it in list_photos(handle, limit) if it["f"] not in skipped}  # dedupes repeats
         (out / "thumbs").mkdir(parents=True, exist_ok=True)
-        print(f"Fetching and tagging {len(photos)} photos...", flush=True)
+        print(f"Step 2/3: downloading {len(photos)} photos", flush=True)
         jobs = [(url, out / "thumbs" / f) for f, (url, _) in photos.items()]
         with ThreadPoolExecutor(8) as pool:
-            ok = list(pool.map(prepare, jobs))
+            ok = []
+            for k, good in enumerate(pool.map(prepare, jobs), 1):
+                ok.append(good)
+                if k % 50 == 0 or k == len(jobs):
+                    print(f"  {k}/{len(jobs)} photos downloaded", flush=True)
             retry = [k for k, good in enumerate(ok) if not good]  # timeouts come in bursts when the line is busy
             for k, good in zip(retry, pool.map(prepare, [jobs[k] for k in retry])):
                 ok[k] = good
         items = [it for (_, it), good in zip(photos.values(), ok) if good]
         if len(items) < len(photos) / 2:  # e.g. Wi-Fi dropped mid-run: don't replace a good earlier run with a handful of photos
             sys.exit(f"Only {len(items)} of {len(photos)} photos could be downloaded (network down?). Nothing saved; run it again.")
+        if (out / "items.json").exists():  # keep earlier photos this run didn't reach, e.g. a re-run limited to the newest posts
+            new = {it["f"] for it in items}
+            items += [it for it in json.loads((out / "items.json").read_text(encoding="utf-8"))
+                      if it["f"] not in new and (out / "thumbs" / it["f"]).exists()]
         (out / "items.json").write_text(json.dumps(items), encoding="utf-8")
         (out / "wd.npy").unlink(missing_ok=True)  # new set of photos: scores are recomputed below
+    print(f"Step 3/3: scoring and tagging {len(items)} photos", flush=True)
     if not (out / "wd.npy").exists():
         np.save(out / "wd.npy", booru_scores([out / "thumbs" / it["f"] for it in items]))
     wd = np.load(out / "wd.npy")

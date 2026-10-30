@@ -29,6 +29,18 @@
   .stats th, .stats td { padding: 3px 10px 3px 0; text-align: left; white-space: nowrap; border-bottom: 1px solid var(--line); }
   .stats th { color: var(--muted); font-weight: 500; }
   .stats tr:last-child td { border-bottom: 0; }
+  dialog { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 12px; padding: 20px; width: min(480px, calc(100% - 32px)); }
+  dialog::backdrop { background: #000a; }
+  dialog h2 { margin: 0 0 12px; font-size: 18px; }
+  dialog input:not([type=checkbox]) { font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; }
+  #who { width: 100%; margin: 6px 0 10px; }
+  #limit { width: 80px; margin: 0 4px; }
+  #info table { border-collapse: collapse; margin: 12px 0; }
+  #info td { padding: 3px 14px 3px 0; vertical-align: top; }
+  #info td:first-child, #eta, #progress { color: var(--muted); }
+  #info td:last-child { white-space: pre-line; }
+  #pbar { width: 100%; accent-color: var(--accent); }
+  .row { display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px; }
   main { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 4px; padding: 4px 16px 16px; }
   main a { position: relative; display: block; aspect-ratio: 4 / 5; background: var(--panel); }
   main img { display: block; width: 100%; height: 100%; object-fit: cover; }
@@ -50,12 +62,29 @@
     </select></label>
     <button id="clear">Clear tags</button>
     <a id="all" href="../index.html">All models</a>
+    <button id="add">+ Add model</button>
     <span class="hint">Click a tag: must have · again: exclude it · again: off</span>
   </div>
   <details id="statsbox"><summary>Stats</summary><div class="stats"><table id="stats"></table></div></details>
   <div id="groups"></div>
 </header>
 <main id="grid"></main>
+<dialog id="addbox">
+  <h2>Add model</h2>
+  <form id="lookup">
+    <label>Instagram link or handle<input id="who" required placeholder="https://www.instagram.com/..."></label>
+    <div class="row"><button>Look up</button></div>
+  </form>
+  <div id="info"></div>
+  <div id="go" hidden>
+    <label><input type="checkbox" id="limited" checked> Only the newest<input type="number" id="limit" value="100" min="1" step="1">posts</label>
+    <p id="eta"></p>
+    <div class="row"><button id="start">Add her</button></div>
+  </div>
+  <p id="progress" role="status"></p>
+  <progress id="pbar" hidden></progress>
+  <div class="row"><button id="reload" hidden onclick="location.reload()">Reload page</button><button id="close">Close</button></div>
+</dialog>
 <script>
 const D = /*DATA*/null;  // filled in by instatagger.py
 const sel = new Map();  // tag -> true: must have it, false: must not have it
@@ -103,6 +132,77 @@ $("statsbox").hidden = !D.stats;
 if (D.stats) $("stats").innerHTML = `<tr>${cols.map(([, h]) => `<th>${h}</th>`).join("")}</tr>` +
   D.stats.map(s => `<tr>${cols.map(([k]) => `<td>${esc(s[k])}</td>`).join("")}</tr>`).join("");
 render();
+
+let P = null, polling = false;  // the looked-up profile
+const api = (path, opts = {}) => fetch(path, {...opts, headers: {"X-Instatagger": "1", "Content-Type": "application/json"}})
+  .then(async r => { const j = await r.json(); if (!r.ok) throw new Error(j.error); return j; });
+const fmt = s => s < 90 ? `${Math.round(s)} s` : `${Math.round(s / 60)} min`;
+
+function eta() {  // measured on earlier runs: a page of 12 posts every ~10 s, ~3 photos a post, ~2 downloads/s,
+  // and tagging re-scores her whole library (photos already added too), plus ~15 s to start up
+  const posts = $("limited").checked ? Math.min(Math.max(Math.floor(+$("limit").value) || 0, 0), P.posts) : P.posts;
+  const photos = posts * 3, list = Math.ceil(posts / 12) * 10.5, down = photos / 2, score = 30 + (photos + P.have) * 0.25;
+  $("eta").textContent = `About ${fmt(15 + list + down + score)} for ${posts.toLocaleString()} posts (~${photos.toLocaleString()} photos): ` +
+    `listing ${fmt(list)}, downloading ${fmt(down)}, tagging ${fmt(score)}. Downloads depend on your connection.`;
+}
+
+async function poll() {
+  if (polling) return;
+  polling = true;
+  for (;;) {
+    const s = await api("/api/status").catch(() => null);
+    if (!s || !s.handle) break;
+    const step = (s.log.filter(l => l.startsWith("Step ")).at(-1) || "Starting").replace(/^Step (\d)\/3: /, "Step $1 of 3: ");
+    const last = [...s.log].reverse().find(l => /^Step |\d+\/\d+ (posts listed|photos downloaded)/.test(l)) || "";
+    const count = !last.startsWith("Step ") && last.match(/(\d+)\/(\d+)/);
+    const bar = $("pbar");
+    bar.hidden = !s.running;
+    if (count) { bar.max = +count[2]; bar.value = +count[1]; } else bar.removeAttribute("value");  // no count yet: moving bar
+    if (s.running) {
+      $("progress").textContent = `Adding @${s.handle} (${fmt(s.elapsed)} so far). ${step}` + (count ? ` (${(+count[1]).toLocaleString()} of ${(+count[2]).toLocaleString()})` : "");
+    } else {
+      const done = s.log.map(l => l.match(/^(\d+) photos ->/)).filter(Boolean).at(-1);
+      const why = [...s.log].reverse().find(l => /Only|No photos|stopped|rror|Not an Instagram/.test(l)) || s.log.at(-1) || "unknown error";
+      $("progress").textContent = s.code === 0 ? `Done: @${s.handle} now has ${done ? (+done[1]).toLocaleString() + " photos" : "her page"}, in ${fmt(s.elapsed)}.`
+        : `Adding @${s.handle} stopped: ${why.trim()}`;
+      $("reload").hidden = s.code !== 0;
+      break;
+    }
+    await new Promise(r => setTimeout(r, 2000));
+  }
+  polling = false;
+}
+
+$("add").onclick = () => {
+  if (location.protocol === "file:") return alert("Adding models needs the server: run  python serve.py  and open http://localhost:8765");
+  $("addbox").showModal();
+  poll();
+};
+$("close").onclick = () => $("addbox").close();
+$("lookup").onsubmit = async e => {
+  e.preventDefault();
+  $("go").hidden = true;
+  $("info").textContent = "Looking up...";
+  try { P = await api("/api/profile?u=" + encodeURIComponent($("who").value.trim())); }
+  catch (err) { $("info").textContent = err.message; return; }
+  const row = (k, v) => `<tr><td>${k}</td><td>${v}</td></tr>`;
+  $("info").innerHTML = "<table>" + row("Name", esc(P.name || "-") + (P.verified ? " (verified)" : "")) + row("Handle", "@" + esc(P.handle)) +
+    row("Posts", P.posts.toLocaleString()) + row("Followers", P.followers.toLocaleString()) + row("Following", P.following.toLocaleString()) +
+    row("Bio", esc(P.bio || "-")) + (P.have ? row("Already added", `${P.have.toLocaleString()} photos. Running again only downloads new posts.`) : "") +
+    "</table>" + (P.private ? "<p>Private account you don't follow, so it can't be added.</p>" : "");
+  $("go").hidden = P.private;
+  if (!P.private) eta();
+};
+$("limited").onchange = $("limit").oninput = () => P && eta();
+$("start").onclick = async () => {
+  const n = Math.floor(+$("limit").value);
+  if ($("limited").checked && !(n >= 1)) return $("progress").textContent = "Enter how many posts: 1 or more.";
+  try {
+    await api("/api/add", {method: "POST", body: JSON.stringify({u: P.handle, limit: $("limited").checked ? n : null})});
+    $("go").hidden = true;
+    poll();
+  } catch (err) { $("progress").textContent = err.message; }
+};
 </script>
 </body>
 </html>

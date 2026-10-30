@@ -21,6 +21,14 @@
   button[aria-pressed="true"] span { color: inherit; }
   button[aria-pressed="mixed"] { border-color: #e5484d; color: #ff9592; text-decoration: line-through; }
   .hint { color: var(--muted); font-size: 12px; }
+  a { color: var(--text); }
+  details { margin: 4px 0 8px; }
+  summary { cursor: pointer; color: var(--muted); }
+  .stats { overflow-x: auto; }
+  .stats table { border-collapse: collapse; font-size: 12px; margin-top: 6px; }
+  .stats th, .stats td { padding: 3px 10px 3px 0; text-align: left; white-space: nowrap; border-bottom: 1px solid var(--line); }
+  .stats th { color: var(--muted); font-weight: 500; }
+  .stats tr:last-child td { border-bottom: 0; }
   main { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 4px; padding: 4px 16px 16px; }
   main a { position: relative; display: block; aspect-ratio: 4 / 5; background: var(--panel); }
   main img { display: block; width: 100%; height: 100%; object-fit: cover; }
@@ -35,12 +43,15 @@
     <span id="count"></span>
     <label>Sort <select id="sort">
       <option value="likes">Most liked</option>
+      <option value="least">Least liked</option>
       <option value="new">Newest</option>
       <option value="old">Oldest</option>
     </select></label>
     <button id="clear">Clear tags</button>
+    <a id="all" href="../index.html">All models</a>
     <span class="hint">Click a tag: must have · again: exclude it · again: off</span>
   </div>
+  <details id="statsbox"><summary>Stats</summary><div class="stats"><table id="stats"></table></div></details>
   <div id="groups"></div>
 </header>
 <main id="grid"></main>
@@ -51,6 +62,7 @@ const $ = id => document.getElementById(id);
 const esc = s => String(s).replace(/[&<>"]/g, c => `&#${c.charCodeAt(0)};`);
 const order = {
   likes: (a, b) => b.l - a.l,
+  least: (a, b) => a.l - b.l,
   new: (a, b) => b.d.localeCompare(a.d) || a.n - b.n,
   old: (a, b) => a.d.localeCompare(b.d) || a.n - b.n,
 };
@@ -66,7 +78,8 @@ function render(focus) {
   $("grid").innerHTML = items.map(it => {
     const tags = esc(it.t.join(", ") || "no tags");
     return `<a href="https://www.instagram.com/p/${it.c}/?img_index=${it.n}" target="_blank" rel="noopener" title="${tags}">` +
-      `<img src="thumbs/${it.f}" alt="${tags}" loading="lazy"><span>♥ ${it.l.toLocaleString()} · ${it.d}</span></a>`;
+      `<img src="${it.h ? it.h + "/" : ""}thumbs/${it.f}" alt="${tags}" loading="lazy">` +
+      `<span>♥ ${it.l.toLocaleString()} · ${it.d}${it.h ? " · @" + it.h : ""}</span></a>`;
   }).join("");
   if (focus) document.querySelector(`[data-t="${CSS.escape(focus)}"]`)?.focus();
 }
@@ -80,7 +93,13 @@ $("groups").onclick = e => {
 };
 $("sort").onchange = () => render();
 $("clear").onclick = () => { sel.clear(); render(); };
-$("title").textContent = document.title = "@" + D.handle;
+$("title").textContent = document.title = D.title || "@" + D.handle;
+$("all").hidden = !!D.all;  // the all-models page doesn't link to itself
+const cols = [["model", "Model"], ["posts", "Posts"], ["photos", "Photos"], ["skipped", "Skipped (no person)"], ["from", "Oldest"],
+  ["to", "Newest"], ["likes", "Median ♥"], ["top", "Top tags"], ["thumbs", "Previews on disk"], ["total", "All files on disk"]];
+$("statsbox").hidden = !D.stats;
+if (D.stats) $("stats").innerHTML = `<tr>${cols.map(([, h]) => `<th>${h}</th>`).join("")}</tr>` +
+  D.stats.map(s => `<tr>${cols.map(([k]) => `<td>${esc(s[k])}</td>`).join("")}</tr>`).join("");
 render();
 </script>
 </body>

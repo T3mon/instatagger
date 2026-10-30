@@ -18,6 +18,6 @@ For a GPU, install torch with CUDA from pytorch.org first. Put your Instagram `s
     python instatagger.py <handle or profile link> [N]   # newest N posts, default all
     python instatagger.py <handle> --retag               # after editing tags.txt, no Instagram calls
 
-Open `out/<handle>/index.html` in a browser. Edit `tags.txt` to add or tune tags. `python test_instatagger.py` runs the tests.
+Open `out/<handle>/index.html` in a browser, or `out/index.html` for every model on one page (filter by model, sort by likes or date, Stats panel with disk use). Edit `tags.txt` to add or tune tags. `python test_instatagger.py` runs the tests.
 
 Scraping breaks Instagram's terms and can get the account rate-limited. Use it for private research and don't repost the photos.

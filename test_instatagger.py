@@ -1,4 +1,5 @@
 """Run: python test_instatagger.py"""
+import json
 import tempfile
 import types
 from datetime import datetime
@@ -33,4 +34,19 @@ with tempfile.TemporaryDirectory() as d:
     instatagger.HERE = Path(d)
     got = instatagger.list_photos("someone", 2)
 assert [(url, it["f"]) for url, it in got] == [("u/A", "A_1.jpg"), ("u/B1", "B_1.jpg")], got
+
+# build_pages: one all-models page from each profile's data.json, with a Model row and a stats line per profile + total
+with tempfile.TemporaryDirectory() as d:
+    instatagger.HERE = Path(d)
+    (Path(d) / "viewer.html").write_text("const D = /*DATA*/null;")
+    for h in ["a", "b"]:
+        (Path(d) / "out" / h / "thumbs").mkdir(parents=True)
+        (Path(d) / "out" / h / "thumbs" / "X_1.jpg").write_bytes(b"x")
+        (Path(d) / "out" / h / "data.json").write_text(json.dumps({"handle": h, "skipped": 1, "groups": [["Body", ["ass"]]],
+            "items": [{"c": "X", "n": 1, "l": 5, "d": "2026-01-01", "f": "X_1.jpg", "t": ["ass"]}]}))
+    instatagger.build_pages()
+    page = json.loads((Path(d) / "out" / "index.html").read_text().removeprefix("const D = ").removesuffix(";"))
+assert page["groups"] == [["Model", ["@a", "@b"]], ["Body", ["ass"]]], page["groups"]
+assert [it["h"] for it in page["items"]] == ["a", "b"] and page["items"][0]["t"] == ["ass", "@a"]
+assert [(r["model"], r["posts"], r["skipped"]) for r in page["stats"]] == [("@a", 1, 1), ("@b", 1, 1), ("All", 2, 2)]
 print("ok")

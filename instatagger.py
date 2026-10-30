@@ -8,13 +8,16 @@ Full-size photos only pass through memory. out/<handle>/ keeps small previews,
 the booru-tag scores (what makes --retag instant) and index.html.
 """
 import csv
+import ctypes
 import json
+import os
 import random
 import re
 import secrets
 import sys
 import time
 import urllib.request
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from io import BytesIO
 from itertools import islice
@@ -142,6 +145,48 @@ def tag(wd, groups):
     return [[names[j] for j in np.flatnonzero(row)] for row in np.stack(hits, axis=1)]
 
 
+def disk_size(files):
+    """Bytes the files really take on disk: each one fills whole clusters (128 KB apiece on an exFAT drive)."""
+    if hasattr(os.stat_result, "st_blocks"):
+        return sum(f.stat().st_blocks * 512 for f in files)
+    per_cluster, sector = ctypes.c_ulong(), ctypes.c_ulong()
+    ctypes.windll.kernel32.GetDiskFreeSpaceW(HERE.resolve().anchor, ctypes.byref(per_cluster), ctypes.byref(sector), None, None)
+    cluster = per_cluster.value * sector.value or 4096
+    return sum(-(-f.stat().st_size // cluster) * cluster for f in files)
+
+
+def stats_row(model, items, skipped, folder):
+    """One line of the page's Stats panel."""
+    dates, likes = sorted(it["d"] for it in items) or ["-"], sorted(it["l"] for it in items) or [0]
+    top = Counter(t for it in items for t in it["t"] if not t.startswith("@")).most_common(3)
+    files = [f for f in folder.rglob("*") if f.is_file()]
+    thumbs = [f for f in files if f.parent.name == "thumbs"]
+    return {"model": model, "posts": len({(it.get("h"), it["c"]) for it in items}), "photos": len(items), "skipped": skipped,
+            "from": dates[0], "to": dates[-1], "likes": f"{likes[len(likes) // 2]:,}", "top": ", ".join(f"{t} {n}" for t, n in top),
+            "thumbs": f"{disk_size(thumbs) / 2**20:,.0f} MB", "total": f"{disk_size(files) / 2**20:,.0f} MB"}
+
+
+def build_pages():
+    """Write every out/<handle>/index.html and the all-models out/index.html from the saved data.json files (no re-tagging)."""
+    template = (HERE / "viewer.html").read_text(encoding="utf-8")
+
+    def write(path, data):
+        path.write_text(template.replace("/*DATA*/null", json.dumps(data).replace("</", "<\\/")), encoding="utf-8")
+
+    rows, items, groups = [], [], {"Model": []}
+    for f in sorted((HERE / "out").glob("*/data.json")):
+        d = json.loads(f.read_text(encoding="utf-8"))
+        rows.append(stats_row("@" + d["handle"], d["items"], d["skipped"], f.parent))
+        write(f.parent / "index.html", {**d, "stats": rows[-1:]})
+        groups["Model"].append("@" + d["handle"])
+        items += [{**it, "h": d["handle"], "t": it["t"] + ["@" + d["handle"]]} for it in d["items"]]
+        for g, tags in d["groups"]:  # profiles tagged with an older tags.txt keep their old tag names
+            known = groups.setdefault(g, [])
+            known += [t for t in tags if t not in known]
+    rows.append(stats_row("All", items, sum(r["skipped"] for r in rows), HERE / "out"))
+    write(HERE / "out" / "index.html", {"title": "All models", "all": True, "items": items, "groups": list(groups.items()), "stats": rows})
+
+
 def main():
     if len(sys.argv) < 2:
         sys.exit(__doc__)
@@ -172,14 +217,15 @@ def main():
         it["t"] = tags
     skip = {name for g, tags in groups if g.lower() == "skip" for name, _, _ in tags}
     shown = [it for it in items if not skip.intersection(it["t"])]  # posts with no person: scenery, text slides...
-    data = {"handle": handle, "items": shown,
+    data = {"handle": handle, "items": shown, "skipped": len(items) - len(shown),
             "groups": [[g, [name for name, _, _ in tags]] for g, tags in groups if g.lower() != "skip"]}
-    page = (HERE / "viewer.html").read_text(encoding="utf-8")
-    (out / "index.html").write_text(page.replace("/*DATA*/null", json.dumps(data).replace("</", "<\\/")), encoding="utf-8")
+    (out / "data.json").write_text(json.dumps(data), encoding="utf-8")
+    build_pages()
     for g, tags in groups:
         counted = items if g.lower() == "skip" else shown
         print(f"{g}: " + ", ".join(f"{name} {sum(name in it['t'] for it in counted)}" for name, _, _ in tags))
     print(f"{len(shown)} photos shown, {len(items) - len(shown)} skipped -> {out / 'index.html'}")
+    print(f"All models: {HERE / 'out' / 'index.html'}")
 
 
 if __name__ == "__main__":

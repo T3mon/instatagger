@@ -105,7 +105,7 @@ def list_photos(handle, limit=None):
 
 
 def prepare(job):
-    """Fetch one photo into memory and save its preview; False if it couldn't be fetched."""
+    """Fetch one photo into memory and save its preview: True, or the error text if it couldn't be fetched."""
     url, thumb = job
     try:
         with Image.open(thumb) as im:  # fetched on an earlier run: reuse the preview, skip the download
@@ -119,10 +119,19 @@ def prepare(job):
             img = Image.open(BytesIO(r.read())).convert("RGB")
     except Exception as e:  # one dead link shouldn't sink a 2,000-photo run
         print(f"skipped {thumb.name}: {e}")
-        return False
+        return str(e) or type(e).__name__
     img.thumbnail((THUMB, THUMB))
     img.save(thumb, quality=80)
     return True
+
+
+def failure(error):
+    """A download error in a few words, for the run's summary."""
+    for needle, words in [("10060", "timed out"), ("timed out", "timed out"), ("10054", "dropped by the server"),
+                          ("reset", "dropped by the server"), ("getaddrinfo", "no internet"), ("HTTP Error", None)]:
+        if needle in error:
+            return words or error.split(":")[0].replace("HTTP Error", "HTTP")
+    return error[:40]
 
 
 def booru_scores(thumbs):
@@ -252,17 +261,24 @@ def main():
         print(f"Step 2/3: downloading {len(photos)} photos", flush=True)
         jobs = [(url, out / "thumbs" / f) for f, (url, _) in photos.items()]
         with ThreadPoolExecutor(8) as pool:
-            ok = []
-            for k, good in enumerate(pool.map(prepare, jobs), 1):
-                ok.append(good)
+            res = []
+            for k, r in enumerate(pool.map(prepare, jobs), 1):
+                res.append(r)
                 if k % 25 == 0 or k == len(jobs):
                     print(f"  {k}/{len(jobs)} photos downloaded", flush=True)
-            retry = [k for k, good in enumerate(ok) if not good]  # timeouts come in bursts when the line is busy
-            if retry:
-                print(f"  retrying {len(retry)} failed downloads", flush=True)
-            for k, good in zip(retry, pool.map(prepare, [jobs[k] for k in retry])):
-                ok[k] = good
-        print(f"  {sum(ok)}/{len(jobs)} photos downloaded, {len(jobs) - sum(ok)} failed", flush=True)
+        retry = [k for k, r in enumerate(res) if r is not True]
+        if retry:  # failures come in bursts when Instagram's image servers push back: pause, then go slower
+            print(f"  retrying {len(retry)} failed downloads after a 15 s pause, 4 at a time", flush=True)
+            time.sleep(15)
+            with ThreadPoolExecutor(4) as pool:
+                for done, (k, r) in enumerate(zip(retry, pool.map(prepare, [jobs[k] for k in retry])), 1):
+                    res[k] = r
+                    if done % 10 == 0 or done == len(retry):
+                        print(f"  {done}/{len(retry)} failed photos retried", flush=True)
+        ok = [r is True for r in res]
+        why = Counter(failure(r) for r in res if r is not True)
+        print(f"  {sum(ok)}/{len(jobs)} photos downloaded, {len(jobs) - sum(ok)} failed"
+              + (": " + ", ".join(f"{n} {w}" for w, n in why.most_common()) if why else ""), flush=True)
         items = [it for (_, it), good in zip(photos.values(), ok) if good]
         if len(items) < len(photos) / 2:  # e.g. Wi-Fi dropped mid-run: don't replace a good earlier run with a handful of photos
             sys.exit(f"Only {len(items)} of {len(photos)} photos could be downloaded (network down?). Nothing saved; run it again.")

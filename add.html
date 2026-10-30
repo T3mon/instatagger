@@ -106,7 +106,7 @@ function showRun(s) {  // s.log: [seconds since start, line] from the run's outp
     const next = starts.slice(k + 1).find(i => i >= 0);
     const lines = s.log.slice(starts[k], next).map(([, l]) => l.trim());
     const t0 = s.log[starts[k]][0], t1 = next === undefined ? s.elapsed : s.log[next][0];
-    const m = lines.map(l => l.match(/^(\d+)\/(\d+) (posts|photos) (?:listed|downloaded|scored)(.*)/)).filter(Boolean).at(-1);
+    const m = lines.map(l => l.match(/^(\d+)\/(\d+) (posts|photos|failed photos) (?:listed|downloaded|scored|retried)(.*)/)).filter(Boolean).at(-1);
     const detail = m ? `${(+m[1]).toLocaleString()} of ${(+m[2]).toLocaleString()} ${m[3]}${m[4]}` : "";
     if (next === undefined && s.running) {  // the step it's on now
       const sub = lines.filter(l => /^[a-z]/.test(l) && !/warn/i.test(l)).at(-1);  // e.g. "loading the tagger"

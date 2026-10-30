@@ -22,6 +22,8 @@ try:
     raise AssertionError("path-like handle accepted")
 except SystemExit:
     pass
+assert [instatagger.failure(e) for e in ["<urlopen error [WinError 10060] A connection attempt failed>", "[WinError 10054] An existing connection was forcibly closed",
+        "HTTP Error 404: Not Found", "<urlopen error [Errno 11001] getaddrinfo failed>"]] == ["timed out", "dropped by the server", "HTTP 404", "no internet"]
 assert parse_tags("# note\n[Place]\nbeach: beach\npool: pool poolside | 0.5\n") == [
     ("Place", [("beach", ["beach"], THRESHOLD), ("pool", ["pool", "poolside"], 0.5)])]
 

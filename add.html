@@ -31,7 +31,7 @@
 </head>
 <body>
 <main>
-  <p class="back"><a href="/">All models</a></p>
+  <p class="back"><a href="/">All models</a> · <a href="/models">Models</a></p>
   <h1>Add model</h1>
   <form id="lookup">
     <label>Instagram link or handle<input id="who" required autofocus autocomplete="off" placeholder="Paste a profile link: it's looked up as you paste"></label>
@@ -154,6 +154,8 @@ $("start").onclick = async () => {
     poll();
   } catch (err) { $("msg").textContent = err.message; }
 };
+$("who").value = new URLSearchParams(location.search).get("u") || "";  // "Add new posts" on the Models page
+if ($("who").value) lookup();
 poll();  // show a run that is already going
 </script>
 </body>

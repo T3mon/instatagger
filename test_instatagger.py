@@ -51,7 +51,7 @@ wd[2, col["1boy"]], wd[2, col["solo"]] = 0.95, 0.95             # her in a suit,
 wd[3, col["1girl"]], wd[3, col["solo"]] = 0.99, 0.97             # her
 assert instatagger.no_girl(wd).tolist() == [True, True, False, False]
 
-# build_pages: one all-models page from each profile's data.json, with a Model row and a stats line per profile + total
+# build_pages: one all-models page from each profile's data.json, with a Model row
 with tempfile.TemporaryDirectory() as d:
     instatagger.HERE = Path(d)
     (Path(d) / "viewer.html").write_text("const D = /*DATA*/null;")
@@ -73,7 +73,6 @@ assert page["groups"][0] == ["Model", ["@a", "@b"]]
 assert [it["h"] for it in page["items"]] == ["a", "b"] and page["items"][0]["t"] == ["ass", "questionable", "@a"]
 assert abs(page["items"][0]["x"] - 1.9) < 0.01 and "x" not in page["items"][1]
 assert [(page["vocab"][j], pct) for j, pct in page["items"][0]["b"]] == [("1girl", 99), ("beach", 80)]  # no ratings, strongest first
-assert [(r["model"], r["posts"], r["skipped"]) for r in page["stats"]] == [("@a", 1, 1), ("@b", 1, 1), ("All", 2, 2)]
 
 # serve.py: API needs the X-Instatagger header, checks input, and reports a run's output (a fake run, no Instagram)
 import serve  # noqa: E402
@@ -93,6 +92,8 @@ assert call("GET", "/api/status", header=False)[0] == 403
 page = http.client.HTTPConnection("127.0.0.1", srv.server_port)
 page.request("GET", "/add")
 assert b"Add model" in page.getresponse().read()
+page.request("GET", "/models")
+assert b"Your models" in page.getresponse().read()
 assert call("POST", "/api/add", {"u": "../x"})[0] == 400
 assert call("POST", "/api/add", {"u": "someone", "limit": 0})[0] == 400
 serve.start("someone", [sys.executable, "-c", "print('Listing posts'); print('skipped x.jpg: timeout'); print('3 photos -> done')"])
@@ -104,6 +105,32 @@ for _ in range(50):
 code, status = call("GET", "/api/status")
 assert code == 200 and status["handle"] == "someone" and not status["running"] and status["code"] == 0, status
 assert [line for _, line in status["log"]] == ["Listing posts", "3 photos -> done"], status  # per-photo errors are left out
+
+# Models page data and delete, on a fake library: 10 photos tagged ass at 300 likes, 19 others at 100, 1 with likes hidden
+with tempfile.TemporaryDirectory() as d:
+    serve.HERE = instatagger.HERE = Path(d)
+    (Path(d) / "viewer.html").write_text("const D = /*DATA*/null;")
+    (Path(d) / "tags.txt").write_text("[Body]\nass: ass\n")
+    folder = Path(d) / "out" / "a"
+    (folder / "thumbs").mkdir(parents=True)
+    (folder / "thumbs" / "P0_1.jpg").write_bytes(b"x")
+    items = [{"c": f"P{k}", "n": 1, "l": 3 if k == 0 else 300 if k <= 10 else 100, "d": f"2026-01-{k + 1:02}", "f": f"P{k}_1.jpg",
+              "t": ["ass"] if 0 < k <= 10 else []} for k in range(30)]
+    (folder / "data.json").write_text(json.dumps({"handle": "a", "skipped": 2, "groups": [["Body", ["ass"]]], "items": items}))
+    code, got = call("GET", "/api/models")
+    m = got["models"][0]
+    assert code == 200 and (m["handle"], m["photos"], m["posts"], m["skipped"], m["hidden"], m["likes"], m["likes_max"]) == ("a", 30, 30, 2, 1, 100, 300), m
+    assert (m["top"], m["lift"], m["rating"], m["per_week"]) == ([["ass", 10]], [["ass", 3.0]], None, 7.2), m
+    assert [it["l"] for it in m["best"]] == [300] * 4 and m["files"] == 2, m
+    assert got["settings"]["groups"] == [["Body", 1]] and got["settings"]["session"] is None, got["settings"]
+    assert call("POST", "/api/delete", {"u": "nobody"})[0] == 404
+    serve.start("b", [sys.executable, "-c", "import time; time.sleep(30)"])
+    assert call("POST", "/api/delete", {"u": "a"})[0] == 409 and folder.exists()  # not while a run is going
+    serve.run["proc"].kill()
+    serve.run["proc"].wait()
+    assert call("POST", "/api/delete", {"u": "a"}) == (200, {"deleted": "a"}) and not folder.exists()
+    page = json.loads((Path(d) / "out" / "index.html").read_text().removeprefix("const D = ").removesuffix(";"))
+    assert page["items"] == [] and call("GET", "/api/models")[1]["models"] == []
 srv.shutdown()
 
 # recent_stats: newest posts without pinned ones; photo share, slides per photo post, likes (3 = hidden)

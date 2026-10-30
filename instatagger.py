@@ -188,18 +188,6 @@ def disk_size(files):
     return sum(-(-f.stat().st_size // cluster) * cluster for f in files)
 
 
-def stats_row(model, items, skipped, folder):
-    """One line of the page's Stats panel."""
-    dates = sorted(it["d"] for it in items) or ["-"]
-    likes = sorted(it["l"] for it in items if it["l"] > 3)  # Instagram reports 3 when likes are hidden
-    top = Counter(t for it in items for t in it["t"] if not t.startswith("@")).most_common(3)
-    files = [f for f in folder.rglob("*") if f.is_file()]
-    thumbs = [f for f in files if f.parent.name == "thumbs"]
-    return {"model": model, "posts": len({(it.get("h"), it["c"]) for it in items}), "photos": len(items), "skipped": skipped,
-            "from": dates[0], "to": dates[-1], "likes": f"{likes[len(likes) // 2]:,}" if likes else "hidden", "top": ", ".join(f"{t} {n}" for t, n in top),
-            "thumbs": f"{disk_size(thumbs) / 2**20:,.0f} MB", "total": f"{disk_size(files) / 2**20:,.0f} MB"}
-
-
 def add_scores(data, folder, cols, general):
     """Per shown photo: the tagger's most likely explicitness level as a tag, a 0-3 score for sorting,
     and "b": every general booru tag it saw (score >= THRESHOLD) as [column, percent], strongest first."""
@@ -224,7 +212,7 @@ def build_pages():
     def write(path, data):
         path.write_text(template.replace("/*DATA*/null", json.dumps(data).replace("</", "<\\/")), encoding="utf-8")
 
-    rows, items, groups = [], [], {"Model": []}
+    items, groups = [], {"Model": []}
     with open(hf_hub_download(MODEL, "selected_tags.csv"), encoding="utf-8") as f:
         tags_csv = list(csv.DictReader(f))
     vocab = [r["name"] for r in tags_csv]  # the page looks up each photo's "b" columns here
@@ -233,16 +221,13 @@ def build_pages():
     for f in sorted((HERE / "out").glob("*/data.json")):
         d = json.loads(f.read_text(encoding="utf-8"))
         add_scores(d, f.parent, [col[r] for r in RATINGS], general)
-        rows.append(stats_row("@" + d["handle"], d["items"], d["skipped"], f.parent))
-        write(f.parent / "index.html", {**d, "stats": rows[-1:], "vocab": vocab})
+        write(f.parent / "index.html", {**d, "vocab": vocab})
         groups["Model"].append("@" + d["handle"])
         items += [{**it, "h": d["handle"], "t": it["t"] + ["@" + d["handle"]]} for it in d["items"]]
         for g, tags in d["groups"]:  # profiles tagged with an older tags.txt keep their old tag names
             known = groups.setdefault(g, [])
             known += [t for t in tags if t not in known]
-    rows.append(stats_row("All", items, sum(r["skipped"] for r in rows), HERE / "out"))
-    write(HERE / "out" / "index.html", {"title": "All models", "all": True, "items": items, "groups": list(groups.items()),
-                                        "stats": rows, "vocab": vocab})
+    write(HERE / "out" / "index.html", {"title": "All models", "all": True, "items": items, "groups": list(groups.items()), "vocab": vocab})
 
 
 def main():

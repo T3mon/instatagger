@@ -1,17 +1,21 @@
-"""Serve the pages with an "Add model" button:  python serve.py, then open http://localhost:8765"""
+"""Serve the pages with the Add model and Models pages:  python serve.py, then open http://localhost:8765"""
 import json
 import os
+import shutil
 import subprocess
 import sys
 import threading
 import time
+from collections import Counter
+from datetime import date, datetime
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from itertools import islice
 from pathlib import Path
-from statistics import median
+from statistics import mean, median
 from urllib.parse import parse_qs, urlparse
 
 import instaloader
+import numpy as np
 
 import instatagger
 
@@ -45,6 +49,47 @@ def profile(handle):
     if not info["private"] and p.mediacount:
         info.update(recent_stats(list(islice(p.get_posts(), 12)), p.followers))
     return info
+
+
+def model_stats(folder, cols):
+    """Everything the Models page shows about one model, from her saved files (no Instagram calls)."""
+    d = json.loads((folder / "data.json").read_text(encoding="utf-8"))
+    instatagger.add_scores(d, folder, cols, np.array([], int))  # adds the rating; no booru tag list needed here
+    items, levels = d["items"], list(instatagger.RATINGS.values())
+    seen = [it for it in items if it["l"] > 3]  # Instagram reports 3 when likes are hidden
+    mid = median(it["l"] for it in seen) if seen else None
+    dates = sorted(it["d"] for it in items)
+    posts = len({it["c"] for it in items})
+    weeks = max((date.fromisoformat(dates[-1]) - date.fromisoformat(dates[0])).days / 7, 1) if dates else 1
+    tags = Counter(t for it in items for t in it["t"] if t not in levels)
+    liked = Counter(t for it in seen for t in it["t"] if t not in levels)
+    lift = {t: median(it["l"] for it in seen if t in it["t"]) / mid for t, n in liked.items() if n >= 10}  # vs her median
+    scored = bool(items) and all("x" in it for it in items)
+    files = [f for f in folder.rglob("*") if f.is_file()]
+    by_post = {it["c"]: it for it in sorted(seen, key=lambda it: (it["l"], -it["n"]))}  # a post's first slide, least liked first
+    show = list(by_post.values())[::-1][:4] or sorted(items, key=lambda it: it["d"])[-4:]
+    return {"handle": d["handle"], "photos": len(items), "posts": posts, "skipped": d["skipped"],
+            "oldest": dates[0] if dates else None, "newest": dates[-1] if dates else None, "per_week": round(posts / weeks, 1),
+            "likes": mid, "likes_avg": round(mean(it["l"] for it in seen)) if seen else None,
+            "likes_max": max((it["l"] for it in seen), default=None), "hidden": len(items) - len(seen),
+            "rating": {r: sum(r in it["t"] for it in items) for r in levels} if scored else None,
+            "spice": round(mean(it["x"] for it in items) / 3 * 100) if scored else None,
+            "top": tags.most_common(8), "lift": sorted(([t, round(x, 2)] for t, x in lift.items()), key=lambda r: -r[1])[:5],
+            "best": [{k: it[k] for k in "cnfl"} for it in show],
+            "thumbs": instatagger.disk_size([f for f in files if f.parent.name == "thumbs"]), "disk": instatagger.disk_size(files),
+            "files": len(files), "updated": datetime.fromtimestamp((folder / "data.json").stat().st_mtime).isoformat(timespec="minutes")}
+
+
+def settings():
+    session = HERE / "session.txt"  # only its date: the file holds your Instagram login
+    return {"tagger": instatagger.MODEL, "cutoff": instatagger.THRESHOLD, "folder": str(HERE / "out"),
+            "groups": [[g, len(t)] for g, t in instatagger.parse_tags((HERE / "tags.txt").read_text(encoding="utf-8")) if g != "Skip"],
+            "session": datetime.fromtimestamp(session.stat().st_mtime).date().isoformat() if session.exists() else None,
+            "free": shutil.disk_usage(HERE).free}
+
+
+def busy():
+    return bool(run["proc"] and run["proc"].poll() is None)
 
 
 def start(handle, cmd):
@@ -83,8 +128,8 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_GET(self):
         url = urlparse(self.path)
-        if url.path == "/add":  # the Add model page, separate so a run never blocks browsing
-            body = (HERE / "add.html").read_bytes()
+        if url.path in ("/add", "/models"):  # separate pages, so a run never blocks browsing
+            body = (HERE / (url.path[1:] + ".html")).read_bytes()
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.send_header("Content-Length", str(len(body)))
@@ -97,8 +142,12 @@ class Handler(SimpleHTTPRequestHandler):
         if url.path == "/api/status":
             proc = run["proc"]
             elapsed = (run["ended"] or time.time()) - run["started"] if proc else 0
-            return self.reply(200, {"handle": run["handle"], "running": bool(proc and proc.poll() is None),
+            return self.reply(200, {"handle": run["handle"], "running": busy(),
                                     "code": proc.poll() if proc else None, "elapsed": round(elapsed), "log": run["log"]})
+        if url.path == "/api/models":
+            cols = [instatagger.booru_columns()[r] for r in instatagger.RATINGS]
+            return self.reply(200, {"models": [model_stats(f.parent, cols) for f in sorted((HERE / "out").glob("*/data.json"))],
+                                    "settings": settings(), "running": run["handle"] if busy() else None})
         if url.path == "/api/profile":
             try:
                 return self.reply(200, profile(instatagger.handle_from(parse_qs(url.query).get("u", [""])[0])))
@@ -111,17 +160,30 @@ class Handler(SimpleHTTPRequestHandler):
     def do_POST(self):
         if not self.allowed():
             return self.reply(403, {"error": "Forbidden"})
-        if self.path != "/api/add":
+        if self.path not in ("/api/add", "/api/delete"):
             return self.reply(404, {"error": "Not found"})
         body = json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)) or "{}")
         try:
             handle = instatagger.handle_from(str(body.get("u", "")))
         except SystemExit as e:
             return self.reply(400, {"error": str(e)})
+        if self.path == "/api/delete":
+            folder = HERE / "out" / handle
+            if not (folder / "data.json").exists():
+                return self.reply(404, {"error": f"@{handle} isn't in the library"})
+            if busy():
+                return self.reply(409, {"error": f"Still adding @{run['handle']}: wait for it to finish"})
+            try:
+                shutil.rmtree(folder)
+                error = None
+            except OSError as e:  # e.g. a file still open in another program
+                error = f"Some of her files couldn't be deleted: {e}"
+            instatagger.build_pages()  # her photos leave the all-models page
+            return self.reply(500, {"error": error}) if error else self.reply(200, {"deleted": handle})
         limit = body.get("limit")
         if limit is not None and (not isinstance(limit, int) or limit < 1):
             return self.reply(400, {"error": "The post limit must be a whole number, 1 or more"})
-        if run["proc"] and run["proc"].poll() is None:
+        if busy():
             return self.reply(409, {"error": f"Still adding @{run['handle']}: wait for it to finish"})
         start(handle, [sys.executable, "-u", str(HERE / "instatagger.py"), handle] + ([str(limit)] if limit else []))
         self.reply(200, {"started": handle})

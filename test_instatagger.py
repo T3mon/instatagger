@@ -86,6 +86,9 @@ def call(method, path, body=None, header=True):
 
 
 assert call("GET", "/api/status", header=False)[0] == 403
+page = http.client.HTTPConnection("127.0.0.1", srv.server_port)
+page.request("GET", "/add")
+assert b"Add model" in page.getresponse().read()
 assert call("POST", "/api/add", {"u": "../x"})[0] == 400
 assert call("POST", "/api/add", {"u": "someone", "limit": 0})[0] == 400
 serve.start("someone", [sys.executable, "-c", "print('Listing posts'); print('skipped x.jpg: timeout'); print('3 photos -> done')"])

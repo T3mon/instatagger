@@ -83,6 +83,13 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_GET(self):
         url = urlparse(self.path)
+        if url.path == "/add":  # the Add model page, separate so a run never blocks browsing
+            body = (HERE / "add.html").read_bytes()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            return self.wfile.write(body)
         if not url.path.startswith("/api/"):
             return super().do_GET()
         if not self.allowed():

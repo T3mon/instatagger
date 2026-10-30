@@ -5,42 +5,72 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>instatagger</title>
 <style>
-  :root { color-scheme: dark; --bg: #0b0b0c; --panel: #1c1c1f; --line: #2e2e33; --text: #f4f4f5; --muted: #a1a1aa; --accent: #c13584; }
+  :root { color-scheme: dark; --bg: #0d0d0f; --panel: #161619; --raise: #1f1f23; --line: #26262b; --text: #f4f4f5; --muted: #a1a1aa; --accent: #c13584; --no: #e5484d; }
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.4 system-ui, sans-serif; }
-  header { position: sticky; top: 0; z-index: 1; background: var(--bg); border-bottom: 1px solid var(--line); padding: 12px 16px; }
-  .bar { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-bottom: 8px; }
-  h1 { margin: 0; font-size: 18px; }
-  #count, .group b { color: var(--muted); }
-  .group { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 4px 0; }
-  .group b { width: 84px; font-weight: 500; }
-  button, select { font: inherit; color: var(--text); background: var(--panel); border: 1px solid var(--line); border-radius: 999px; padding: 4px 10px; cursor: pointer; }
-  button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); }
-  button:disabled { opacity: .35; cursor: default; }
-  button span { color: var(--muted); margin-left: 4px; }
-  button[aria-pressed="true"] span { color: inherit; }
-  button[aria-pressed="mixed"] { border-color: #e5484d; color: #ff9592; text-decoration: line-through; }
-  .hint { color: var(--muted); font-size: 12px; }
   a { color: var(--text); }
-  details { margin: 4px 0 8px; }
-  summary { cursor: pointer; color: var(--muted); }
-  .stats { overflow-x: auto; }
-  .stats table { border-collapse: collapse; font-size: 12px; margin-top: 6px; }
-  .stats th, .stats td { padding: 3px 10px 3px 0; text-align: left; white-space: nowrap; border-bottom: 1px solid var(--line); }
-  .stats th { color: var(--muted); font-weight: 500; }
-  .stats tr:last-child td { border-bottom: 0; }
-  main { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 4px; padding: 4px 16px 16px; }
-  main a { position: relative; display: block; aspect-ratio: 4 / 5; background: var(--panel); }
-  main img { display: block; width: 100%; height: 100%; object-fit: cover; }
-  main a span { position: absolute; inset: auto 0 0; padding: 16px 6px 4px; font-size: 12px; background: linear-gradient(transparent, #000c); }
+  button, select, input { font: inherit; color: var(--text); }
+  button { cursor: pointer; }
+  button:disabled { opacity: .35; cursor: default; }
   :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  header { position: sticky; top: 0; z-index: 2; background: var(--bg); border-bottom: 1px solid var(--line); }
+  .top { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 16px; padding: 10px 16px; }
+  .brand { font-weight: 600; font-size: 16px; text-decoration: none; }
+  #title { color: var(--muted); }
+  .search { flex: 1 1 260px; display: flex; align-items: center; gap: 8px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 0 12px; height: 40px; }
+  .search input { flex: 1; background: transparent; border: 0; outline: none; }
+  select { height: 40px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 0 10px; }
+  .btn { height: 40px; display: inline-flex; align-items: center; padding: 0 16px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel); text-decoration: none; }
+  .btn.main { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 500; }
+  .chips { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 16px; border-top: 1px solid var(--line); min-height: 48px; }
+  #count { color: var(--muted); margin-right: 4px; }
+  .chip { height: 32px; padding: 0 10px; border-radius: 999px; border: 1px solid var(--accent); background: var(--accent); color: #fff; }
+  .chip.no { background: transparent; border-color: var(--no); color: #ff9592; }
+  .linkbtn { border: 0; background: none; color: var(--muted); text-decoration: underline; }
+  .layout { display: flex; flex-wrap: wrap; align-items: flex-start; }
+  nav { flex: 1 1 250px; max-width: 290px; padding: 12px 10px 24px; border-right: 1px solid var(--line); position: sticky; top: 106px; max-height: calc(100vh - 106px); overflow-y: auto; }
+  nav details { margin-bottom: 6px; }
+  nav summary { cursor: pointer; padding: 8px; font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+  .tag { display: flex; align-items: center; gap: 6px; min-height: 34px; padding: 0 4px 0 8px; border-radius: 8px; }
+  .tag.yes { background: #2a1420; } .tag.yes .name { color: #f9a8d4; }
+  .tag.no .name { color: #ff9592; text-decoration: line-through; }
+  .tag .name { flex: 1; } .tag .n { color: var(--muted); font-size: 12px; margin-right: 4px; }
+  .tag button { width: 28px; height: 28px; border-radius: 6px; border: 1px solid #3f3f46; background: transparent; }
+  .tag button[aria-pressed="true"].plus { background: var(--accent); border-color: var(--accent); }
+  .tag button[aria-pressed="true"].minus { background: var(--no); border-color: var(--no); }
+  main { flex: 999 1 480px; min-width: 0; padding: 12px 16px 24px; }
+  details.stats { margin-bottom: 12px; }
+  details.stats summary { cursor: pointer; color: var(--muted); }
+  .statwrap { overflow-x: auto; }
+  .statwrap table { border-collapse: collapse; font-size: 12px; margin-top: 6px; }
+  .statwrap th, .statwrap td { padding: 3px 10px 3px 0; text-align: left; white-space: nowrap; border-bottom: 1px solid var(--line); }
+  .statwrap th { color: var(--muted); font-weight: 500; }
+  #grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+  #grid button { position: relative; padding: 0; border: 0; border-radius: 8px; overflow: hidden; aspect-ratio: 4 / 5; background: var(--panel); }
+  #grid button[aria-pressed="true"] { outline: 2px solid var(--accent); outline-offset: 2px; }
+  #grid img { display: block; width: 100%; height: 100%; object-fit: cover; }
+  #grid span { position: absolute; inset: auto 0 0; padding: 16px 6px 4px; font-size: 12px; text-align: left; background: linear-gradient(transparent, #000c); }
+  aside { flex: 1 1 280px; max-width: 340px; padding: 12px 16px 24px; border-left: 1px solid var(--line); position: sticky; top: 106px; display: flex; flex-direction: column; gap: 12px; }
+  aside img { width: 100%; aspect-ratio: 4 / 5; object-fit: cover; border-radius: 10px; background: var(--panel); }
+  .meta { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+  .meta span { color: var(--muted); font-size: 12px; }
+  .pills { display: flex; flex-wrap: wrap; gap: 6px; }
+  .pill { padding: 4px 10px; border-radius: 999px; background: var(--raise); }
+  .tagpill { padding: 4px 10px; border-radius: 999px; border: 1px solid #3f3f46; background: transparent; font-size: 13px; }
+  .open { height: 40px; display: flex; align-items: center; justify-content: center; border-radius: 10px; background: var(--text); color: var(--bg); text-decoration: none; font-weight: 500; }
+  @media (max-width: 900px) { nav, aside { position: static; max-height: none; max-width: none; border: 0; } }
 </style>
 </head>
 <body>
 <header>
-  <div class="bar">
-    <h1 id="title"></h1>
-    <span id="count"></span>
+  <div class="top">
+    <a class="brand" href="/" id="home">instatagger</a>
+    <span id="title"></span>
+    <label class="search"><span class="sr">Find a tag</span>
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#a1a1aa" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.5-3.5"></path></svg>
+      <input id="find" placeholder="Find a tag, e.g. beach" autocomplete="off">
+    </label>
     <label>Sort <select id="sort">
       <option value="likes">Most liked</option>
       <option value="least">Least liked</option>
@@ -48,20 +78,26 @@
       <option value="new">Newest</option>
       <option value="old">Oldest</option>
     </select></label>
-    <button id="clear">Clear tags</button>
-    <a id="all" href="../index.html">All models</a>
-    <a id="add" href="/add" target="_blank">+ Add model</a>
-    <span class="hint">Click a tag: must have · again: exclude it · again: off</span>
+    <a class="btn" id="all" href="../index.html">All models</a>
+    <a class="btn main" id="add" href="/add" target="_blank">+ Add model</a>
   </div>
-  <details id="statsbox"><summary>Stats</summary><div class="stats"><table id="stats"></table></div></details>
-  <div id="groups"></div>
+  <div class="chips" id="chips"></div>
 </header>
-<main id="grid"></main>
+<div class="layout">
+  <nav aria-label="Filters" id="filters"></nav>
+  <main>
+    <details class="stats" id="statsbox"><summary>Stats</summary><div class="statwrap"><table id="stats"></table></div></details>
+    <div id="grid"></div>
+  </main>
+  <aside aria-label="Selected photo" id="inspector"></aside>
+</div>
 <script>
 const D = /*DATA*/null;  // filled in by instatagger.py
 const sel = new Map();  // tag -> true: must have it, false: must not have it
+let picked = null, shown = [];
 const $ = id => document.getElementById(id);
 const esc = s => String(s).replace(/[&<>"]/g, c => `&#${c.charCodeAt(0)};`);
+const src = it => `${it.h ? it.h + "/" : ""}thumbs/${it.f}`;
 const order = {
   likes: (a, b) => b.l - a.l,
   least: (a, b) => a.l - b.l,
@@ -69,35 +105,82 @@ const order = {
   new: (a, b) => b.d.localeCompare(a.d) || a.n - b.n,
   old: (a, b) => a.d.localeCompare(b.d) || a.n - b.n,
 };
+const RATING = {safe: "#14532d", suggestive: "#3b2a12", questionable: "#4c1d1d", explicit: "#5b1230"};
 
-function render(focus) {
-  const items = D.items.filter(it => [...sel].every(([t, want]) => it.t.includes(t) === want)).sort(order[$("sort").value]);
+// The filter list is built once; render() only updates counts and states, so open groups stay open
+$("filters").innerHTML = D.groups.map(([g, tags], k) => `<details ${k < 3 ? "open" : ""}><summary>${esc(g)}</summary>${tags.map(t =>
+  `<div class="tag" data-t="${esc(t)}"><span class="name">${esc(t)}</span><span class="n"></span>` +
+  `<button class="plus" aria-label="Must have ${esc(t)}" aria-pressed="false">+</button>` +
+  `<button class="minus" aria-label="Exclude ${esc(t)}" aria-pressed="false">−</button></div>`).join("")}</details>`).join("");
+const rows = [...document.querySelectorAll(".tag")];
+
+function render() {
+  shown = D.items.filter(it => [...sel].every(([t, want]) => it.t.includes(t) === want)).sort(order[$("sort").value]);
   const n = {};
-  for (const it of items) for (const t of it.t) n[t] = (n[t] || 0) + 1;
-  $("count").textContent = `${items.length} of ${D.items.length} photos`;
-  $("groups").innerHTML = D.groups.map(([g, tags]) => `<div class="group"><b>${esc(g)}</b>${tags.map(t =>
-    `<button data-t="${esc(t)}" aria-pressed="${sel.has(t) ? (sel.get(t) ? "true" : "mixed") : "false"}" ${n[t] || sel.has(t) ? "" : "disabled"}>${esc(t)}<span>${n[t] || 0}</span></button>`
-  ).join("")}</div>`).join("");
-  $("grid").innerHTML = items.map(it => {
-    const tags = esc(it.t.join(", ") || "no tags");
-    return `<a href="https://www.instagram.com/p/${it.c}/?img_index=${it.n}" target="_blank" rel="noopener" title="${tags}">` +
-      `<img src="${it.h ? it.h + "/" : ""}thumbs/${it.f}" alt="${tags}" loading="lazy">` +
-      `<span>♥ ${it.l.toLocaleString()} · ${it.d}${it.h ? " · @" + it.h : ""}</span></a>`;
-  }).join("");
-  if (focus) document.querySelector(`[data-t="${CSS.escape(focus)}"]`)?.focus();
+  for (const it of shown) for (const t of it.t) n[t] = (n[t] || 0) + 1;
+  for (const row of rows) {
+    const t = row.dataset.t, state = sel.get(t);
+    row.className = "tag" + (state === true ? " yes" : state === false ? " no" : "");
+    row.querySelector(".n").textContent = (n[t] || 0).toLocaleString();
+    row.querySelector(".plus").setAttribute("aria-pressed", state === true);
+    row.querySelector(".minus").setAttribute("aria-pressed", state === false);
+    row.querySelector(".plus").disabled = !n[t] && state !== true;
+  }
+  $("chips").innerHTML = `<span id="count">${shown.length.toLocaleString()} of ${D.items.length.toLocaleString()} photos</span>` +
+    [...sel].map(([t, want]) => `<button class="chip${want ? "" : " no"}" data-t="${esc(t)}" aria-label="Remove filter ${esc(t)}">${want ? "" : "not "}${esc(t)} ✕</button>`).join("") +
+    (sel.size ? `<button class="linkbtn" id="clear">Clear all</button>` : `<span style="color:var(--muted)">Use + to require a tag, − to exclude it</span>`);
+  if (!shown.includes(picked)) picked = shown[0] || null;
+  $("grid").innerHTML = shown.map((it, i) => `<button data-i="${i}" aria-pressed="${it === picked}" aria-label="${esc(it.t.join(", ") || "no tags")}">` +
+    `<img src="${src(it)}" alt="" loading="lazy"><span>♥ ${it.l.toLocaleString()} · ${it.d}${it.h ? " · @" + it.h : ""}</span></button>`).join("");
+  inspect();
 }
 
-$("groups").onclick = e => {
+function inspect() {
+  const it = picked;
+  if (!it) return $("inspector").innerHTML = `<p style="color:var(--muted)">No photos match these filters.</p>`;
+  const rating = it.t.find(t => RATING[t]);
+  $("inspector").innerHTML = `<img src="${src(it)}" alt="Selected photo">` +
+    `<div class="meta"><strong>@${esc(it.h || D.handle)}</strong><span>${it.d} · slide ${it.n}</span></div>` +
+    `<div class="pills"><span class="pill">♥ ${it.l.toLocaleString()}</span>${rating ? `<span class="pill" style="background:${RATING[rating]}">${rating}</span>` : ""}</div>` +
+    `<div class="pills">${it.t.filter(t => !RATING[t] && !t.startsWith("@")).map(t => `<button class="tagpill" data-t="${esc(t)}" title="Show only photos with ${esc(t)}">${esc(t)}</button>`).join("")}</div>` +
+    `<a class="open" href="https://www.instagram.com/p/${it.c}/?img_index=${it.n}" target="_blank" rel="noopener">Open on Instagram</a>`;
+}
+
+$("filters").onclick = e => {
+  const b = e.target.closest("button"), row = b && b.closest(".tag");
+  if (!row) return;
+  const t = row.dataset.t, want = b.classList.contains("plus");
+  sel.get(t) === want ? sel.delete(t) : sel.set(t, want);  // pressing the active button again turns it off
+  render();
+};
+$("chips").onclick = e => {
   const b = e.target.closest("button");
   if (!b) return;
-  const t = b.dataset.t;  // cycles: off -> must have -> exclude -> off
-  !sel.has(t) ? sel.set(t, true) : sel.get(t) ? sel.set(t, false) : sel.delete(t);
-  render(b.dataset.t);
+  b.id === "clear" ? sel.clear() : sel.delete(b.dataset.t);
+  render();
 };
-$("sort").onchange = () => render();
-$("clear").onclick = () => { sel.clear(); render(); };
-$("title").textContent = document.title = D.title || "@" + D.handle;
+$("grid").onclick = e => {
+  const b = e.target.closest("button");
+  if (!b) return;
+  picked = shown[+b.dataset.i];
+  $("grid").querySelector('[aria-pressed="true"]')?.setAttribute("aria-pressed", "false");
+  b.setAttribute("aria-pressed", "true");
+  inspect();
+};
+$("inspector").onclick = e => {
+  const b = e.target.closest(".tagpill");
+  if (b) { sel.set(b.dataset.t, true); render(); }
+};
+$("find").oninput = () => {
+  const q = $("find").value.trim().toLowerCase();
+  for (const row of rows) row.hidden = q && !row.dataset.t.toLowerCase().includes(q);
+  for (const d of $("filters").querySelectorAll("details")) if (q) d.open = [...d.querySelectorAll(".tag")].some(r => !r.hidden);
+};
+$("sort").onchange = render;
+$("title").textContent = D.title || "@" + D.handle;
+document.title = (D.title || "@" + D.handle) + " · instatagger";
 $("all").hidden = !!D.all;  // the all-models page doesn't link to itself
+$("home").href = D.all ? "index.html" : "../index.html";
 $("add").hidden = location.protocol === "file:";  // adding needs serve.py
 const cols = [["model", "Model"], ["posts", "Posts"], ["photos", "Photos"], ["skipped", "Skipped (no girl)"], ["from", "Oldest"],
   ["to", "Newest"], ["likes", "Median ♥"], ["top", "Top tags"], ["thumbs", "Previews on disk"], ["total", "All files on disk"]];
@@ -105,7 +188,6 @@ $("statsbox").hidden = !D.stats;
 if (D.stats) $("stats").innerHTML = `<tr>${cols.map(([, h]) => `<th>${h}</th>`).join("")}</tr>` +
   D.stats.map(s => `<tr>${cols.map(([k]) => `<td>${esc(s[k])}</td>`).join("")}</tr>`).join("");
 render();
-
 </script>
 </body>
 </html>

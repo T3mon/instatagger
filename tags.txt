@@ -9,14 +9,22 @@ no person: no_humans
 
 [Body part]
 ass: ass
-boobs/cleavage: cleavage
+back shot: from_behind back looking_back
+cleavage: cleavage | 0.5
 under boob: underboob
 side boob: sideboob
+stomach: midriff navel
 abs: abs toned
-stomach: midriff
-back shot: from_behind back looking_back
 thong: thong g-string
 legs: legs thighs long_legs crossed_legs bare_legs
+backless: backless_outfit backless_dress bare_back
+
+[Suggestive]
+see-through: see-through
+strapless: strapless
+stockings: thighhighs garter_belt garter_straps pantyhose fishnets
+high heels: high_heels
+implied nude: nude topless covering_privates
 
 [Pose]
 lying: lying on_back on_stomach
@@ -26,10 +34,13 @@ squatting: squatting
 kneeling: kneeling
 all fours: all_fours
 arched back: arched_back
+crossed legs: crossed_legs
+bent over: bent_over
 
 [Framing]
 full body: full_body
 face close-up: close-up portrait
+no face: head_out_of_frame
 
 [Outfit]
 bikini: bikini

@@ -1,0 +1,4 @@
+session.txt
+out/
+__pycache__/
+.claude/

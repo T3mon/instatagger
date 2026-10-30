@@ -1,0 +1,7 @@
+instaloader>=4.16
+transformers>=5
+timm>=1.0
+torch
+numpy
+pillow
+huggingface_hub

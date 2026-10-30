@@ -73,6 +73,9 @@
   .pills { display: flex; flex-wrap: wrap; gap: 6px; }
   .pill { padding: 4px 10px; border-radius: 999px; background: var(--raise); }
   .tagpill { padding: 4px 10px; border-radius: 999px; border: 1px solid #3f3f46; background: transparent; font-size: 13px; }
+  .booru summary { cursor: pointer; color: var(--muted); margin-bottom: 8px; }
+  .bt { padding: 3px 8px; border-radius: 6px; background: var(--raise); font-size: 12px; }
+  .bt b { color: var(--muted); font-weight: 500; }
   .open { height: 40px; display: flex; align-items: center; justify-content: center; border-radius: 10px; background: var(--text); color: var(--bg); text-decoration: none; font-weight: 500; }
   @media (max-width: 900px) { nav, aside { position: static; max-height: none; max-width: none; border: 0; } }
 </style>
@@ -181,7 +184,9 @@ function inspect() {
     `<div class="meta"><strong>@${esc(it.h || D.handle)}</strong><span>${it.d} · slide ${it.n}</span></div>` +
     `<div class="pills"><span class="pill">♥ ${it.l.toLocaleString()}</span>${rating ? `<span class="pill" style="background:${RATING[rating]}">${rating}</span>` : ""}</div>` +
     `<div class="pills">${it.t.filter(t => !RATING[t] && !t.startsWith("@")).map(t => `<button class="tagpill" data-t="${esc(t)}" title="Show only photos with ${esc(t)}">${esc(t)}</button>`).join("")}</div>` +
-    `<a class="open" href="https://www.instagram.com/p/${it.c}/?img_index=${it.n}" target="_blank" rel="noopener">Open on Instagram</a>`;
+    `<a class="open" href="https://www.instagram.com/p/${it.c}/?img_index=${it.n}" target="_blank" rel="noopener">Open on Instagram</a>` +
+    (it.b ? `<details class="booru"><summary>All ${it.b.length} tags the model saw</summary><div class="pills">` +
+      it.b.map(([j, pct]) => `<span class="bt">${esc(D.vocab[j].replace(/_/g, " "))} <b>${pct}%</b></span>`).join("") + `</div></details>` : "");
 }
 
 $("filters").onclick = e => {

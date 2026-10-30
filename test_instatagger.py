@@ -61,6 +61,7 @@ with tempfile.TemporaryDirectory() as d:
     col = instatagger.booru_columns()  # profile a has saved scores, so it gets a rating; b doesn't
     wd = np.zeros((1, len(col)), np.float16)
     wd[0, col["sensitive"]], wd[0, col["questionable"]] = 0.1, 0.9
+    wd[0, col["beach"]], wd[0, col["1girl"]], wd[0, col["pool"]] = 0.8, 0.99, 0.2  # pool is under the cutoff
     np.save(Path(d) / "out" / "a" / "wd.npy", wd)
     (Path(d) / "out" / "a" / "items.json").write_text(json.dumps([{"f": "X_1.jpg"}]))
     instatagger.build_pages()
@@ -69,6 +70,7 @@ assert [g for g, _ in page["groups"]] == ["Model", "Rating", "Body"], page["grou
 assert page["groups"][0] == ["Model", ["@a", "@b"]]
 assert [it["h"] for it in page["items"]] == ["a", "b"] and page["items"][0]["t"] == ["ass", "questionable", "@a"]
 assert abs(page["items"][0]["x"] - 1.9) < 0.01 and "x" not in page["items"][1]
+assert [(page["vocab"][j], pct) for j, pct in page["items"][0]["b"]] == [("1girl", 99), ("beach", 80)]  # no ratings, strongest first
 assert [(r["model"], r["posts"], r["skipped"]) for r in page["stats"]] == [("@a", 1, 1), ("@b", 1, 1), ("All", 2, 2)]
 
 # serve.py: API needs the X-Instatagger header, checks input, and reports a run's output (a fake run, no Instagram)

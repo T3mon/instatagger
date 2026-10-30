@@ -190,16 +190,20 @@ def stats_row(model, items, skipped, folder):
             "thumbs": f"{disk_size(thumbs) / 2**20:,.0f} MB", "total": f"{disk_size(files) / 2**20:,.0f} MB"}
 
 
-def add_rating(data, folder, cols):
-    """Tag each shown photo with the tagger's most likely explicitness level, plus a 0-3 score for sorting."""
+def add_scores(data, folder, cols, general):
+    """Per shown photo: the tagger's most likely explicitness level as a tag, a 0-3 score for sorting,
+    and "b": every general booru tag it saw (score >= THRESHOLD) as [column, percent], strongest first."""
     if not (folder / "wd.npy").exists():
         return
-    wd = np.load(folder / "wd.npy").astype(np.float32)[:, cols]
+    wd = np.load(folder / "wd.npy").astype(np.float32)
     row = {it["f"]: k for k, it in enumerate(json.loads((folder / "items.json").read_text(encoding="utf-8")))}
     for it in data["items"]:
-        p = wd[row[it["f"]]]
+        w = wd[row[it["f"]]]
+        p = w[cols]
         it["t"] = it["t"] + [list(RATINGS.values())[p.argmax()]]
         it["x"] = round(float(p @ np.arange(len(p)) / p.sum()), 3)
+        seen = general[w[general] >= THRESHOLD]
+        it["b"] = [[int(j), round(float(w[j]) * 100)] for j in seen[np.argsort(-w[seen])]]
     data["groups"] = [["Rating", list(RATINGS.values())]] + data["groups"]
 
 
@@ -211,19 +215,24 @@ def build_pages():
         path.write_text(template.replace("/*DATA*/null", json.dumps(data).replace("</", "<\\/")), encoding="utf-8")
 
     rows, items, groups = [], [], {"Model": []}
-    col = booru_columns()
+    with open(hf_hub_download(MODEL, "selected_tags.csv"), encoding="utf-8") as f:
+        tags_csv = list(csv.DictReader(f))
+    vocab = [r["name"] for r in tags_csv]  # the page looks up each photo's "b" columns here
+    general = np.array([j for j, r in enumerate(tags_csv) if r["category"] == "0"])  # not ratings or anime characters
+    col = {name: j for j, name in enumerate(vocab)}
     for f in sorted((HERE / "out").glob("*/data.json")):
         d = json.loads(f.read_text(encoding="utf-8"))
-        add_rating(d, f.parent, [col[r] for r in RATINGS])
+        add_scores(d, f.parent, [col[r] for r in RATINGS], general)
         rows.append(stats_row("@" + d["handle"], d["items"], d["skipped"], f.parent))
-        write(f.parent / "index.html", {**d, "stats": rows[-1:]})
+        write(f.parent / "index.html", {**d, "stats": rows[-1:], "vocab": vocab})
         groups["Model"].append("@" + d["handle"])
         items += [{**it, "h": d["handle"], "t": it["t"] + ["@" + d["handle"]]} for it in d["items"]]
         for g, tags in d["groups"]:  # profiles tagged with an older tags.txt keep their old tag names
             known = groups.setdefault(g, [])
             known += [t for t in tags if t not in known]
     rows.append(stats_row("All", items, sum(r["skipped"] for r in rows), HERE / "out"))
-    write(HERE / "out" / "index.html", {"title": "All models", "all": True, "items": items, "groups": list(groups.items()), "stats": rows})
+    write(HERE / "out" / "index.html", {"title": "All models", "all": True, "items": items, "groups": list(groups.items()),
+                                        "stats": rows, "vocab": vocab})
 
 
 def main():

@@ -152,10 +152,12 @@ let picked = null, shown = [];
 const $ = id => document.getElementById(id);
 const esc = s => String(s).replace(/[&<>"]/g, c => `&#${c.charCodeAt(0)};`);
 const src = it => `${it.h ? it.h + "/" : ""}thumbs/${it.f}`;
-const order = {
-  likes: (a, b) => b.l - a.l,
-  least: (a, b) => a.l - b.l,
-  spicy: (a, b) => (b.x ?? 0) - (a.x ?? 0) || b.l - a.l,
+const likes = it => it.l > 3 ? it.l : null;  // Instagram reports 3 when the model hides likes on a post
+const shownLikes = it => likes(it) === null ? "likes hidden" : likes(it).toLocaleString();
+const order = {  // posts with hidden likes go last either way
+  likes: (a, b) => (likes(b) ?? -1) - (likes(a) ?? -1),
+  least: (a, b) => (likes(a) ?? 1e12) - (likes(b) ?? 1e12),
+  spicy: (a, b) => (b.x ?? 0) - (a.x ?? 0) || (likes(b) ?? -1) - (likes(a) ?? -1),
   new: (a, b) => b.d.localeCompare(a.d) || a.n - b.n,
   old: (a, b) => a.d.localeCompare(b.d) || a.n - b.n,
 };
@@ -202,7 +204,7 @@ function render() {
   if ($("tagbox").open) tagList();
   if (!shown.includes(picked)) picked = shown[0] || null;
   $("grid").innerHTML = shown.map((it, i) => `<button data-i="${i}" aria-pressed="${it === picked}" aria-label="${esc(it.t.join(", ") || "no tags")}">` +
-    `<img src="${src(it)}" alt="" loading="lazy"><span>♥ ${it.l.toLocaleString()} · ${it.d}${it.h ? " · @" + it.h : ""}</span></button>`).join("");
+    `<img src="${src(it)}" alt="" loading="lazy"><span>♥ ${shownLikes(it)} · ${it.d}${it.h ? " · @" + it.h : ""}</span></button>`).join("");
   inspect();
 }
 
@@ -212,7 +214,7 @@ function inspect() {
   const rating = it.t.find(t => RATING[t]);
   $("inspector").innerHTML = `<img src="${src(it)}" alt="Selected photo">` +
     `<div class="meta"><strong>@${esc(it.h || D.handle)}</strong><span>${it.d} · slide ${it.n}</span></div>` +
-    `<div class="pills"><span class="pill">♥ ${it.l.toLocaleString()}</span>${rating ? `<span class="pill" style="background:${RATING[rating]}">${rating}</span>` : ""}</div>` +
+    `<div class="pills"><span class="pill">♥ ${shownLikes(it)}</span>${rating ? `<span class="pill" style="background:${RATING[rating]}">${rating}</span>` : ""}</div>` +
     `<div class="pills">${it.t.filter(t => !RATING[t] && !t.startsWith("@")).map(t => `<button class="tagpill" data-t="${esc(t)}" title="Show only photos with ${esc(t)}">${esc(t)}</button>`).join("")}</div>` +
     `<a class="open" href="https://www.instagram.com/p/${it.c}/?img_index=${it.n}" target="_blank" rel="noopener">Open on Instagram</a>` +
     (it.b ? `<details class="booru"><summary>All ${it.b.length} tags the model saw</summary><div class="pills">` +

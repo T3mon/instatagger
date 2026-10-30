@@ -190,12 +190,13 @@ def disk_size(files):
 
 def stats_row(model, items, skipped, folder):
     """One line of the page's Stats panel."""
-    dates, likes = sorted(it["d"] for it in items) or ["-"], sorted(it["l"] for it in items) or [0]
+    dates = sorted(it["d"] for it in items) or ["-"]
+    likes = sorted(it["l"] for it in items if it["l"] > 3)  # Instagram reports 3 when likes are hidden
     top = Counter(t for it in items for t in it["t"] if not t.startswith("@")).most_common(3)
     files = [f for f in folder.rglob("*") if f.is_file()]
     thumbs = [f for f in files if f.parent.name == "thumbs"]
     return {"model": model, "posts": len({(it.get("h"), it["c"]) for it in items}), "photos": len(items), "skipped": skipped,
-            "from": dates[0], "to": dates[-1], "likes": f"{likes[len(likes) // 2]:,}", "top": ", ".join(f"{t} {n}" for t, n in top),
+            "from": dates[0], "to": dates[-1], "likes": f"{likes[len(likes) // 2]:,}" if likes else "hidden", "top": ", ".join(f"{t} {n}" for t, n in top),
             "thumbs": f"{disk_size(thumbs) / 2**20:,.0f} MB", "total": f"{disk_size(files) / 2**20:,.0f} MB"}
 
 

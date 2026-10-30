@@ -141,10 +141,11 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_GET(self):
         url = urlparse(self.path)
-        if url.path in ("/add", "/models"):  # separate pages, so a run never blocks browsing
-            body = (HERE / (url.path[1:] + ".html")).read_bytes()
+        pages = {"/add": "add.html", "/models": "models.html", "/favicon.ico": "favicon.ico"}  # separate pages, so a run never blocks browsing
+        if url.path in pages:
+            body = (HERE / pages[url.path]).read_bytes()
             self.send_response(200)
-            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Type", "image/x-icon" if url.path == "/favicon.ico" else "text/html; charset=utf-8")
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             return self.wfile.write(body)

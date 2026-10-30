@@ -94,6 +94,8 @@ page.request("GET", "/add")
 assert b"Add model" in page.getresponse().read()
 page.request("GET", "/models")
 assert b"Your models" in page.getresponse().read()
+page.request("GET", "/favicon.ico")
+assert page.getresponse().read()[:4] == b"\0\0\1\0"  # an .ico file
 assert call("POST", "/api/add", {"u": "../x"})[0] == 400
 assert call("POST", "/api/add", {"u": "someone", "limit": 0})[0] == 400
 serve.start("someone", [sys.executable, "-c", "print('Listing posts'); print('skipped x.jpg: timeout'); print('3 photos -> done')"])

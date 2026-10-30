@@ -29,6 +29,8 @@
   .chip { height: 32px; padding: 0 10px; border-radius: 999px; border: 1px solid var(--accent); background: var(--accent); color: #fff; }
   .chip.no { background: transparent; border-color: var(--no); color: #ff9592; }
   .linkbtn { border: 0; background: none; color: var(--muted); text-decoration: underline; }
+  .chip.like { display: inline-flex; align-items: center; gap: 6px; padding-left: 3px; }
+  .chip.like img { width: 26px; height: 26px; border-radius: 50%; object-fit: cover; }
   .layout { display: flex; flex-wrap: wrap; align-items: flex-start; }
   nav { flex: 1 1 250px; max-width: 290px; padding: 12px 10px 24px; border-right: 1px solid var(--line); position: sticky; top: 106px; max-height: calc(100vh - 106px); overflow-y: auto; }
   nav details { margin-bottom: 6px; }
@@ -58,9 +60,11 @@
   main { flex: 999 1 480px; min-width: 0; padding: 12px 16px 24px; }
   #grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
   #grid button { position: relative; padding: 0; border: 0; border-radius: 8px; overflow: hidden; aspect-ratio: 4 / 5; background: var(--panel); }
+  #grid button.anchor { outline: 2px dashed var(--accent); outline-offset: 2px; }
   #grid button[aria-pressed="true"] { outline: 2px solid var(--accent); outline-offset: 2px; }
   #grid img { display: block; width: 100%; height: 100%; object-fit: cover; }
   #grid span { position: absolute; inset: auto 0 0; padding: 16px 6px 4px; font-size: 12px; text-align: left; background: linear-gradient(transparent, #000c); }
+  #grid em { display: block; font-style: normal; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   aside { flex: 1 1 280px; max-width: 340px; padding: 12px 16px 24px; border-left: 1px solid var(--line); position: sticky; top: 106px; max-height: calc(100vh - 106px); overflow-y: auto; display: flex; flex-direction: column; gap: 12px; }
   aside > * { flex-shrink: 0; }
   dialog { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 14px; padding: 0; width: min(1180px, calc(100% - 32px)); max-height: 86vh; }
@@ -83,6 +87,10 @@
   .pill { padding: 4px 10px; border-radius: 999px; background: var(--raise); }
   .tagpill { padding: 4px 10px; border-radius: 999px; border: 1px solid #3f3f46; background: transparent; font-size: 13px; }
   .booru summary { cursor: pointer; color: var(--muted); margin-bottom: 8px; }
+  .likebtn { height: 40px; border-radius: 10px; border: 1px solid var(--accent); background: transparent; color: #f9a8d4; font-weight: 500; }
+  .likebtn:hover { background: #2a1420; }
+  .why { padding: 10px; border-radius: 10px; background: #2a1420; }
+  .why .pills { margin-top: 8px; }
   .bt { display: inline-flex; min-height: 28px; font-size: 12px; }
   .actions { display: flex; gap: 8px; } .actions .open { flex: 1; }
   .open { height: 40px; display: flex; align-items: center; justify-content: center; border-radius: 10px; background: var(--text); color: var(--bg); text-decoration: none; font-weight: 500; }
@@ -179,6 +187,28 @@ const rows = [...document.querySelectorAll(".tag")];
 for (const it of D.items) it.bs = new Set((it.b || []).map(([j]) => D.vocab[j]));
 const has = (it, key) => key.startsWith("b:") ? it.bs.has(key.slice(2)) : it.t.includes(key);
 const label = key => key.startsWith("b:") ? key.slice(2).replace(/_/g, " ") : key;
+const tagName = j => D.vocab[j].replace(/_/g, " ");
+
+// More like this: photos are compared by the booru tags they share (cosine over the tag percents; weighting rare tags up
+// matched noise). df: how many photos have each tag, so the "why" labels skip tags most photos have (1girl, solo, long hair)
+const df = new Map();
+for (const it of D.items) {
+  it.v = new Map(it.b || []);
+  it.norm = Math.hypot(...it.v.values());
+  for (const j of it.v.keys()) df.set(j, (df.get(j) || 0) + 1);
+}
+let like = null, back = null;  // like: the photo More like this started from; back: [scroll, picked] to return to
+function match(it) {  // [0-1 how alike it is to `like`, the shared tags both are surest of, most first]
+  let dot = 0;
+  const both = [];
+  for (const [j, p] of it.v) {
+    const q = like.v.get(j);
+    if (!q) continue;
+    dot += p * q;
+    if (df.get(j) <= D.items.length / 2) both.push([j, Math.min(p, q)]);
+  }
+  return [dot / (it.norm * like.norm || 1), both.sort((a, b) => b[1] - a[1]).map(([j]) => j)];
+}
 
 const spice = it => (it.x ?? 0) / 3 * 100;  // x: the tagger's rating averaged by confidence, 0 safe ... 3 explicit
 const BANDS = [["Safe", 0, 16], ["Suggestive", 17, 49], ["Questionable", 50, 83], ["Explicit", 84, 100]];  // split halfway between levels
@@ -194,6 +224,14 @@ function render() {
   shown = tagged.filter(it => Math.round(spice(it)) >= lo && Math.round(spice(it)) <= hi).sort(order[$("sort").value]);
   const n = {};
   for (const it of shown) for (const t of it.t) n[t] = (n[t] || 0) + 1;
+  if (like) {  // the starting photo, then the best-matching slide of every other post, most alike first
+    for (const it of shown) it.m = match(it);
+    const best = new Map();
+    for (const it of shown.sort((a, b) => b.m[0] - a.m[0])) if (it.c !== like.c && !best.has(it.c)) best.set(it.c, it);
+    shown = [like, ...best.values()];
+  }
+  $("sort").disabled = !!like;
+  $("sort").title = like ? "Sorted by how alike the photos are" : "";
   for (const row of rows) {
     const t = row.dataset.t, state = sel.get(t);
     row.className = "tag" + (state === true ? " yes" : state === false ? " no" : "");
@@ -202,15 +240,20 @@ function render() {
     row.querySelector(".minus").setAttribute("aria-pressed", state === false);
     row.querySelector(".plus").disabled = !n[t] && state !== true;
   }
-  $("chips").innerHTML = `<span id="count">${shown.length.toLocaleString()} of ${D.items.length.toLocaleString()} photos</span>` +
+  $("chips").innerHTML = `<span id="count">${like ? `${(shown.length - 1).toLocaleString()} posts, most alike first`
+      : `${shown.length.toLocaleString()} of ${D.items.length.toLocaleString()} photos`}</span>` +
+    (like ? `<button class="chip like" id="unlike" aria-label="Stop showing photos like this one"><img src="${src(like)}" alt="">like this photo ✕</button>` : "") +
     (spiced ? `<button class="chip" id="unspice" aria-label="Remove suggestiveness filter">suggestive ${lo}–${hi}% ✕</button>` : "") +
     [...sel].map(([t, want]) => `<button class="chip${want ? "" : " no"}" data-t="${esc(t)}" aria-label="Remove filter ${esc(label(t))}">${want ? "" : "not "}${esc(label(t))} ✕</button>`).join("") +
     `<button class="btn" id="anytag" style="height: 32px">+ Any tag</button>` +
-    (sel.size || spiced ? `<button class="linkbtn" id="clear">Clear all</button>` : `<span style="color:var(--muted)">Use + to require a tag, − to exclude it</span>`);
+    (sel.size || spiced || like ? `<button class="linkbtn" id="clear">Clear all</button>` : `<span style="color:var(--muted)">Use + to require a tag, − to exclude it</span>`);
   if ($("tagbox").open) tagList();
   if (!shown.includes(picked)) picked = shown[0] || null;
-  $("grid").innerHTML = shown.map((it, i) => `<button data-i="${i}" aria-pressed="${it === picked}" aria-label="${esc(it.t.join(", ") || "no tags")}">` +
-    `<img src="${src(it)}" alt="" loading="lazy"><span>♥ ${shownLikes(it)} · ${it.d}${it.h ? " · @" + it.h : ""}</span></button>`).join("");
+  const alike = it => it === like ? "Starting photo" : `${Math.round(it.m[0] * 100)}% alike`;
+  $("grid").innerHTML = shown.map((it, i) => `<button data-i="${i}" aria-pressed="${it === picked}" class="${it === like ? "anchor" : ""}" ` +
+    `aria-label="${esc((like ? alike(it) + ". " : "") + (it.t.join(", ") || "no tags"))}"><img src="${src(it)}" alt="" loading="lazy"><span>` +
+    (like ? `<em>${alike(it)}${it === like ? "" : " · " + esc(it.m[1].slice(0, 2).map(tagName).join(", "))}</em>♥ ${shownLikes(it)}`
+      : `♥ ${shownLikes(it)} · ${it.d}`) + `${it.h ? " · @" + it.h : ""}</span></button>`).join("");
   inspect();
 }
 
@@ -222,6 +265,10 @@ function inspect() {
     `<div class="meta"><strong>@${esc(it.h || D.handle)}</strong><span>${it.d} · slide ${it.n}</span></div>` +
     `<div class="pills"><span class="pill">♥ ${shownLikes(it)}</span>${rating ? `<span class="pill" style="background:${RATING[rating]}">${rating}</span>` : ""}</div>` +
     `<div class="pills">${it.t.filter(t => !RATING[t] && !t.startsWith("@")).map(t => `<button class="tagpill" data-t="${esc(t)}" title="Show only photos with ${esc(t)}">${esc(t)}</button>`).join("")}</div>` +
+    (like && it !== like ? `<div class="why"><b>${Math.round(it.m[0] * 100)}% alike</b> the starting photo. Both have:<div class="pills">` +
+      (it.m[1].slice(0, 8).map(j => `<button class="bt" data-t="b:${esc(D.vocab[j])}" title="Show only photos with this tag">${esc(tagName(j))}</button>`).join("") ||
+        "only tags most photos have") + `</div></div>` : "") +
+    (it.v.size && it !== like ? `<button class="likebtn" id="morelike">More like this</button>` : "") +
     `<div class="actions"><a class="open" href="https://www.instagram.com/p/${it.c}/?img_index=${it.n}" target="_blank" rel="noopener">Open on Instagram</a>` +
     (location.protocol === "file:" ? "" : `<button class="delphoto" id="delphoto" aria-label="Delete this photo" title="Delete this photo">${TRASH}</button>`) + `</div>` +
     (it.b ? `<details class="booru"><summary>All ${it.b.length} tags the model saw</summary><div class="pills">` +
@@ -254,7 +301,14 @@ $("chips").onclick = e => {
   if (!b) return;
   if (b.id === "anytag") { $("tagbox").showModal(); tagList(); return; }
   if (b.id === "clear" || b.id === "unspice") { $("lo").value = 0; $("hi").value = 100; }
-  if (b.id === "clear") sel.clear(); else if (b.dataset.t) sel.delete(b.dataset.t);
+  if (b.id === "unlike") {  // back to the grid as it was, on the photo More like this started from
+    const [y, start] = back;
+    like = back = null;
+    picked = start;
+    render();
+    return scrollTo(0, y);
+  }
+  if (b.id === "clear") { sel.clear(); like = back = null; } else if (b.dataset.t) sel.delete(b.dataset.t);
   render();
 };
 $("grid").onclick = e => {
@@ -276,11 +330,18 @@ async function deletePhoto(b) {  // two clicks: the first one only arms it
     if (!r.ok) throw new Error((await r.json()).error);
   } catch (err) { b.disabled = false; delete b.dataset.armed; b.innerHTML = TRASH; alert(`Couldn't delete: ${err.message}`); return; }
   D.items.splice(D.items.indexOf(it), 1);
+  if (it === like) like = back = null;
   picked = shown[i + 1] || shown[i - 1] || null;  // the next photo takes its place, so cleaning up is click, click, next
   render();
 }
 $("inspector").onclick = e => {
   if (e.target.closest("#delphoto")) return deletePhoto(e.target.closest("#delphoto"));
+  if (e.target.closest("#morelike")) {  // pressed again on a result, it starts over from that one
+    back = back || [scrollY, picked];
+    like = picked;
+    render();
+    return scrollTo(0, 0);
+  }
   const b = e.target.closest(".tagpill, .bt");
   if (b) { sel.set(b.dataset.t, true); render(); }
 };

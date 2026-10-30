@@ -18,7 +18,7 @@ For a GPU, install torch with CUDA from pytorch.org first. Put your Instagram `s
     python instatagger.py <handle or profile link> [N]   # newest N posts, default all
     python instatagger.py <handle> --retag               # after editing tags.txt, no Instagram calls
 
-Open `out/<handle>/index.html` in a browser, or `out/index.html` for every model on one page (filter by model, sort by likes or date, Stats panel with disk use).
+Open `out/<handle>/index.html` in a browser, or `out/index.html` for every model on one page (filter by model, sort by likes or date). **More like this** on a photo sorts the grid by the tags other posts share with it (outfit, pose, setting), with your filters still on.
 
 Or run `python serve.py` and open http://localhost:8765. The pages then get an **Add model** button: paste a profile link to see the account's stats and a time estimate, optionally limit it to the newest N posts, and follow the run's progress. The **Models** page shows each model's stats (likes, rating mix, top tags, the tags that get her the most likes, disk use) and settings. It deletes a whole model or her photos from a range of years; the photo panel in the gallery deletes single photos. Deleted photos are never downloaded again. Edit `tags.txt` to add or tune tags. `python test_instatagger.py` runs the tests.
 

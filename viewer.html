@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>instatagger</title>
+<style>
+  :root { color-scheme: dark; --bg: #0b0b0c; --panel: #1c1c1f; --line: #2e2e33; --text: #f4f4f5; --muted: #a1a1aa; --accent: #c13584; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.4 system-ui, sans-serif; }
+  header { position: sticky; top: 0; z-index: 1; background: var(--bg); border-bottom: 1px solid var(--line); padding: 12px 16px; }
+  .bar { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-bottom: 8px; }
+  h1 { margin: 0; font-size: 18px; }
+  #count, .group b { color: var(--muted); }
+  .group { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 4px 0; }
+  .group b { width: 84px; font-weight: 500; }
+  button, select { font: inherit; color: var(--text); background: var(--panel); border: 1px solid var(--line); border-radius: 999px; padding: 4px 10px; cursor: pointer; }
+  button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); }
+  button:disabled { opacity: .35; cursor: default; }
+  button span { color: var(--muted); margin-left: 4px; }
+  button[aria-pressed="true"] span { color: inherit; }
+  button[aria-pressed="mixed"] { border-color: #e5484d; color: #ff9592; text-decoration: line-through; }
+  .hint { color: var(--muted); font-size: 12px; }
+  main { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 4px; padding: 4px 16px 16px; }
+  main a { position: relative; display: block; aspect-ratio: 4 / 5; background: var(--panel); }
+  main img { display: block; width: 100%; height: 100%; object-fit: cover; }
+  main a span { position: absolute; inset: auto 0 0; padding: 16px 6px 4px; font-size: 12px; background: linear-gradient(transparent, #000c); }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+</style>
+</head>
+<body>
+<header>
+  <div class="bar">
+    <h1 id="title"></h1>
+    <span id="count"></span>
+    <label>Sort <select id="sort">
+      <option value="likes">Most liked</option>
+      <option value="new">Newest</option>
+      <option value="old">Oldest</option>
+    </select></label>
+    <button id="clear">Clear tags</button>
+    <span class="hint">Click a tag: must have · again: exclude it · again: off</span>
+  </div>
+  <div id="groups"></div>
+</header>
+<main id="grid"></main>
+<script>
+const D = /*DATA*/null;  // filled in by instatagger.py
+const sel = new Map();  // tag -> true: must have it, false: must not have it
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"]/g, c => `&#${c.charCodeAt(0)};`);
+const order = {
+  likes: (a, b) => b.l - a.l,
+  new: (a, b) => b.d.localeCompare(a.d) || a.n - b.n,
+  old: (a, b) => a.d.localeCompare(b.d) || a.n - b.n,
+};
+
+function render(focus) {
+  const items = D.items.filter(it => [...sel].every(([t, want]) => it.t.includes(t) === want)).sort(order[$("sort").value]);
+  const n = {};
+  for (const it of items) for (const t of it.t) n[t] = (n[t] || 0) + 1;
+  $("count").textContent = `${items.length} of ${D.items.length} photos`;
+  $("groups").innerHTML = D.groups.map(([g, tags]) => `<div class="group"><b>${esc(g)}</b>${tags.map(t =>
+    `<button data-t="${esc(t)}" aria-pressed="${sel.has(t) ? (sel.get(t) ? "true" : "mixed") : "false"}" ${n[t] || sel.has(t) ? "" : "disabled"}>${esc(t)}<span>${n[t] || 0}</span></button>`
+  ).join("")}</div>`).join("");
+  $("grid").innerHTML = items.map(it => {
+    const tags = esc(it.t.join(", ") || "no tags");
+    return `<a href="https://www.instagram.com/p/${it.c}/?img_index=${it.n}" target="_blank" rel="noopener" title="${tags}">` +
+      `<img src="thumbs/${it.f}" alt="${tags}" loading="lazy"><span>♥ ${it.l.toLocaleString()} · ${it.d}</span></a>`;
+  }).join("");
+  if (focus) document.querySelector(`[data-t="${CSS.escape(focus)}"]`)?.focus();
+}
+
+$("groups").onclick = e => {
+  const b = e.target.closest("button");
+  if (!b) return;
+  const t = b.dataset.t;  // cycles: off -> must have -> exclude -> off
+  !sel.has(t) ? sel.set(t, true) : sel.get(t) ? sel.set(t, false) : sel.delete(t);
+  render(b.dataset.t);
+};
+$("sort").onchange = () => render();
+$("clear").onclick = () => { sel.clear(); render(); };
+$("title").textContent = document.title = "@" + D.handle;
+render();
+</script>
+</body>
+</html>

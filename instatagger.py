@@ -5,8 +5,9 @@
 
 Needs session.txt next to this file, holding your Instagram `sessionid` cookie value.
 Full-size photos only pass through memory. out/<handle>/ keeps small previews,
-the booru-tag scores (what makes --retag instant) and index.html.
+the booru-tag scores (what makes --retag instant), the image features and index.html.
 """
+import base64
 import csv
 import ctypes
 import json
@@ -135,20 +136,23 @@ def failure(error):
 
 
 def booru_scores(thumbs):
-    """Probability of every booru tag for each preview; the tagger wants white-padded squares in BGR."""
+    """Probability of every booru tag for each preview, and its image features: the 1024 numbers the tagger's last layer
+    turns into tags, which "same look" matching compares. The tagger wants white-padded squares in BGR."""
     print("  loading the tagger", flush=True)
     dtype = torch.float16 if DEV == "cuda" else torch.float32
     model = timm.create_model("hf-hub:" + MODEL, pretrained=True).eval().to(DEV, dtype)
     transform = create_transform(**resolve_data_config(model.pretrained_cfg, model=model))
-    out = []
+    scores, feats = [], []
     for i in range(0, len(thumbs), 16):
         x = torch.stack([transform(ImageOps.pad(Image.open(f).convert("RGB"), (THUMB, THUMB), color="white"))
                          for f in thumbs[i:i + 16]])[:, [2, 1, 0]]
         with torch.no_grad():
-            out.append(torch.sigmoid(model(x.to(DEV, dtype)).float()).cpu())
+            seen = model.forward_features(x.to(DEV, dtype))
+            scores.append(torch.sigmoid(model.forward_head(seen).float()).cpu())
+            feats.append(model.forward_head(seen, pre_logits=True).float().cpu())
         if (i // 16) % 10 == 9 or i + 16 >= len(thumbs):
             print(f"  {min(i + 16, len(thumbs))}/{len(thumbs)} photos scored", flush=True)
-    return torch.cat(out).numpy().astype(np.float16)
+    return torch.cat(scores).numpy().astype(np.float16), torch.cat(feats).numpy().astype(np.float16)
 
 
 def booru_columns():
@@ -201,8 +205,9 @@ def remove_photos(folder, files):
     for f in gone:
         (folder / "thumbs" / f).unlink(missing_ok=True)
     (folder / "removed.json").write_text(json.dumps(sorted(saved_set(folder / "removed.json") | set(gone))), encoding="utf-8")
-    if (folder / "wd.npy").exists():  # one row per items.json entry, so both shrink together
-        np.save(folder / "wd.npy", np.load(folder / "wd.npy")[keep])
+    for name in ["wd.npy", "feat.npy"]:  # one row per items.json entry, so they all shrink together
+        if (folder / name).exists():
+            np.save(folder / name, np.load(folder / name)[keep])
     (folder / "items.json").write_text(json.dumps([items[k] for k in keep]), encoding="utf-8")
     data = json.loads((folder / "data.json").read_text(encoding="utf-8"))
     data["items"] = [it for it in data["items"] if it["f"] not in files]
@@ -212,10 +217,12 @@ def remove_photos(folder, files):
 
 def add_scores(data, folder, cols, general):
     """Per shown photo: the tagger's most likely explicitness level as a tag, a 0-3 score for sorting,
-    and "b": every general booru tag it saw (score >= THRESHOLD) as [column, percent], strongest first."""
+    "b": every general booru tag it saw (score >= THRESHOLD) as [column, percent], strongest first,
+    and "e": its image features at unit length as int8 in base64, for "same look" matching on the page."""
     if not (folder / "wd.npy").exists():
         return
     wd = np.load(folder / "wd.npy").astype(np.float32)
+    feat = np.load(folder / "feat.npy").astype(np.float32) if (folder / "feat.npy").exists() else None
     row = {it["f"]: k for k, it in enumerate(json.loads((folder / "items.json").read_text(encoding="utf-8")))}
     for it in data["items"]:
         w = wd[row[it["f"]]]
@@ -224,6 +231,9 @@ def add_scores(data, folder, cols, general):
         it["x"] = round(float(p @ np.arange(len(p)) / p.sum()), 3)
         seen = general[w[general] >= THRESHOLD]
         it["b"] = [[int(j), round(float(w[j]) * 100)] for j in seen[np.argsort(-w[seen])]]
+        if feat is not None:
+            e = feat[row[it["f"]]]
+            it["e"] = base64.b64encode(np.round(e / np.linalg.norm(e) * 127).astype(np.int8).tobytes()).decode()
     data["groups"] = [["Rating", list(RATINGS.values())]] + data["groups"]
 
 
@@ -296,10 +306,14 @@ def main():
             items += [it for it in json.loads((out / "items.json").read_text(encoding="utf-8"))
                       if it["f"] not in new and (out / "thumbs" / it["f"]).exists()]
         (out / "items.json").write_text(json.dumps(items), encoding="utf-8")
-        (out / "wd.npy").unlink(missing_ok=True)  # new set of photos: scores are recomputed below
+        for name in ["wd.npy", "feat.npy"]:  # new set of photos: scores and features are recomputed below
+            (out / name).unlink(missing_ok=True)
     print(f"Step 3/3: scoring and tagging {len(items)} photos", flush=True)
-    if not (out / "wd.npy").exists():
-        np.save(out / "wd.npy", booru_scores([out / "thumbs" / it["f"] for it in items]))
+    if not (out / "feat.npy").exists() or not (out / "wd.npy").exists():  # models tagged before features existed get them on --retag
+        wd, feat = booru_scores([out / "thumbs" / it["f"] for it in items])
+        if not (out / "wd.npy").exists():  # saved scores stay as they are, so adding features never changes her tags
+            np.save(out / "wd.npy", wd)
+        np.save(out / "feat.npy", feat)
     wd = np.load(out / "wd.npy")
     groups = parse_tags((HERE / "tags.txt").read_text(encoding="utf-8"))
     print("  applying your tags", flush=True)
@@ -315,6 +329,7 @@ def main():
         items, wd, tags = [it for it, d in zip(items, drop) if not d], wd[~drop], [t for t, d in zip(tags, drop) if not d]
         (out / "items.json").write_text(json.dumps(items), encoding="utf-8")
         np.save(out / "wd.npy", wd)
+        np.save(out / "feat.npy", np.load(out / "feat.npy")[~drop])
     for it, t in zip(items, tags):
         it["t"] = t
     groups = [(g, group) for g, group in groups if g.lower() != "skip"]

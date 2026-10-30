@@ -1,4 +1,5 @@
 """Run: python test_instatagger.py"""
+import base64
 import http.client
 import json
 import sys
@@ -65,6 +66,7 @@ with tempfile.TemporaryDirectory() as d:
     wd[0, col["sensitive"]], wd[0, col["questionable"]] = 0.1, 0.9
     wd[0, col["beach"]], wd[0, col["1girl"]], wd[0, col["pool"]] = 0.8, 0.99, 0.2  # pool is under the cutoff
     np.save(Path(d) / "out" / "a" / "wd.npy", wd)
+    np.save(Path(d) / "out" / "a" / "feat.npy", np.array([[3, 0, -4, 0]], np.float16))  # image features, stored at unit length x 127
     (Path(d) / "out" / "a" / "items.json").write_text(json.dumps([{"f": "X_1.jpg"}]))
     instatagger.build_pages()
     page = json.loads((Path(d) / "out" / "index.html").read_text().removeprefix("const D = ").removesuffix(";"))
@@ -73,6 +75,7 @@ assert page["groups"][0] == ["Model", ["@a", "@b"]]
 assert [it["h"] for it in page["items"]] == ["a", "b"] and page["items"][0]["t"] == ["ass", "questionable", "@a"]
 assert abs(page["items"][0]["x"] - 1.9) < 0.01 and "x" not in page["items"][1]
 assert [(page["vocab"][j], pct) for j, pct in page["items"][0]["b"]] == [("1girl", 99), ("beach", 80)]  # no ratings, strongest first
+assert list(np.frombuffer(base64.b64decode(page["items"][0]["e"]), np.int8)) == [76, 0, -102, 0] and "e" not in page["items"][1]
 
 # serve.py: API needs the X-Instatagger header, checks input, and reports a run's output (a fake run, no Instagram)
 import serve  # noqa: E402
@@ -131,11 +134,13 @@ with tempfile.TemporaryDirectory() as d:
     wd = np.zeros((30, len(instatagger.booru_columns())), np.float16)
     wd[:, 0] = np.arange(30)
     np.save(folder / "wd.npy", wd)
+    np.save(folder / "feat.npy", np.arange(30, dtype=np.float16)[:, None] * np.ones((1, 8), np.float16))
     assert call("POST", "/api/delete", {"u": "a", "files": ["P0_1.jpg", "nope.jpg"]}) == (200, {"deleted": 1})
     assert call("POST", "/api/delete", {"u": "a", "years": "2026"})[0] == 400
     with serve.files_lock:  # waits for the page rebuild
         assert not (folder / "thumbs" / "P0_1.jpg").exists() and json.loads((folder / "removed.json").read_text()) == ["P0_1.jpg"]
         assert np.load(folder / "wd.npy")[:, 0].tolist() == list(range(1, 30)) and len(json.loads((folder / "items.json").read_text())) == 29
+        assert np.load(folder / "feat.npy")[:, 0].tolist() == list(range(1, 30))  # features shrink with them
         assert len(json.loads((folder / "data.json").read_text())["items"]) == 29
     serve.start("b", [sys.executable, "-c", "import time; time.sleep(30)"])
     assert call("POST", "/api/delete", {"u": "a"})[0] == 409 and folder.exists()  # not while a run is going

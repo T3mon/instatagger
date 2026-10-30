@@ -31,6 +31,8 @@
   .linkbtn { border: 0; background: none; color: var(--muted); text-decoration: underline; }
   .chip.like { display: inline-flex; align-items: center; gap: 6px; padding-left: 3px; }
   .chip.like img { width: 26px; height: 26px; border-radius: 50%; object-fit: cover; }
+  .chips .mode { border: 1px solid var(--line); padding: 2px; }
+  .chips .mode button { height: 26px; padding: 0 12px; }
   .layout { display: flex; flex-wrap: wrap; align-items: flex-start; }
   nav { flex: 1 1 250px; max-width: 290px; padding: 12px 10px 24px; border-right: 1px solid var(--line); position: sticky; top: 106px; max-height: calc(100vh - 106px); overflow-y: auto; }
   nav details { margin-bottom: 6px; }
@@ -91,6 +93,11 @@
   .likebtn:hover { background: #2a1420; }
   .why { padding: 10px; border-radius: 10px; background: #2a1420; }
   .why .pills { margin-top: 8px; }
+  .look h3 { margin: 0 0 8px; font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+  .palette { display: flex; height: 22px; border-radius: 6px; overflow: hidden; margin-bottom: 6px; }
+  .tone { font-size: 13px; color: var(--muted); margin-bottom: 6px; } .tone b { color: var(--text); font-weight: 500; }
+  .lookrow { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-top: 4px; }
+  .lookrow > span { width: 60px; font-size: 12px; color: var(--muted); }
   .bt { display: inline-flex; min-height: 28px; font-size: 12px; }
   .actions { display: flex; gap: 8px; } .actions .open { flex: 1; }
   .open { height: 40px; display: flex; align-items: center; justify-content: center; border-radius: 10px; background: var(--text); color: var(--bg); text-decoration: none; font-weight: 500; }
@@ -197,7 +204,16 @@ for (const it of D.items) {
   it.norm = Math.hypot(...it.v.values());
   for (const j of it.v.keys()) df.set(j, (df.get(j) || 0) + 1);
 }
-let like = null, back = null;  // like: the photo More like this started from; back: [scroll, picked] to return to
+let like = null, back = null, by = "both";  // like: the photo More like this started from; back: [scroll, picked] to return to
+const basis = () => like.e ? by : "tags";  // photos scored before image features existed only match by tags
+const look = it => it.lk ??= Int8Array.from(atob(it.e), c => c.charCodeAt(0));  // "e": image features at unit length x 127
+function lookAlike(it) {  // 0-1: how alike the two photos look (pose, framing, light, scene), from the tagger's image features
+  if (!it.e) return 0;
+  const a = look(it), b = look(like);
+  let dot = 0;
+  for (let k = 0; k < a.length; k++) dot += a[k] * b[k];
+  return dot / 127 / 127;
+}
 function match(it) {  // [0-1 how alike it is to `like`, the shared tags both are surest of, most first]
   let dot = 0;
   const both = [];
@@ -208,6 +224,61 @@ function match(it) {  // [0-1 how alike it is to `like`, the shared tags both ar
     if (df.get(j) <= D.items.length / 2) both.push([j, Math.min(p, q)]);
   }
   return [dot / (it.norm * like.norm || 1), both.sort((a, b) => b[1] - a[1]).map(([j]) => j)];
+}
+
+// Look: the photo's palette and tone from its own pixels (cut-offs are this library's 15th and 85th percentiles),
+// and the tagger's camera and light tags
+const LOOK = Object.entries({
+  Angle: "from_above from_below from_side from_behind dutch_angle pov straight-on upside-down sideways fisheye perspective foreshortening",
+  Framing: "close-up portrait upper_body cowboy_shot lower_body full_body wide_shot very_wide_shot head_out_of_frame feet_out_of_frame out_of_frame profile selfie reflection",
+  Light: "sunlight dappled_sunlight backlighting light_rays sunbeam lens_flare spotlight shadow sunset twilight evening night dark neon_lights glowing",
+  Focus: "depth_of_field blurry blurry_background blurry_foreground bokeh motion_blur chromatic_aberration",
+  Colour: "monochrome greyscale sepia colorful simple_background black_background white_background gradient_background",
+}).map(([group, tags]) => [group, new Set(tags.split(" "))]);
+const lookTags = it => LOOK.map(([group, names]) => {
+  const mine = (it.b || []).filter(([j]) => names.has(D.vocab[j]));
+  return mine.length ? `<div class="lookrow"><span>${group}</span>${mine.map(([j, pct]) =>
+    `<button class="bt" data-t="b:${esc(D.vocab[j])}" title="Show only photos with this tag">${esc(tagName(j))} <b>${pct}%</b></button>`).join("")}</div>` : "";
+}).join("");
+
+function tone(img) {  // [[colour, share of the photo] most first, [word, stands out?] for brightness, warmth, contrast, colour]
+  const c = document.createElement("canvas");
+  c.width = c.height = 48;
+  const g = c.getContext("2d", {willReadFrequently: true});
+  g.drawImage(img, 0, 0, 48, 48);
+  const d = g.getImageData(0, 0, 48, 48).data;  // throws on pages opened as files: the browser won't hand those pixels over
+  const px = [];
+  for (let i = 0; i < d.length; i += 4) px.push([d[i], d[i + 1], d[i + 2]]);
+  const lum = p => 0.299 * p[0] + 0.587 * p[1] + 0.114 * p[2], mean = a => a.reduce((s, x) => s + x, 0) / a.length;
+  const dist = (a, b) => (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2 + (a[2] - b[2]) ** 2;
+  // 5 colours by k-means, started at evenly spaced brightness so a photo always gets the same palette
+  const byLum = [...px].sort((a, b) => lum(a) - lum(b));
+  let cents = [0.1, 0.3, 0.5, 0.7, 0.9].map(q => byLum[Math.floor(q * px.length)]), near = [];
+  for (let round = 0; round < 8; round++) {
+    near = px.map(p => cents.reduce((best, c, k) => dist(p, c) < dist(p, cents[best]) ? k : best, 0));
+    cents = cents.map((c, k) => {
+      const mine = px.filter((_, i) => near[i] === k);
+      return mine.length ? [0, 1, 2].map(ch => mean(mine.map(p => p[ch]))) : c;
+    });
+  }
+  const palette = cents.map((c, k) => [`rgb(${c.map(Math.round)})`, near.filter(n => n === k).length / px.length])
+    .filter(([, share]) => share > 0).sort((a, b) => b[1] - a[1]);
+  const y = px.map(lum), my = mean(y), sd = Math.sqrt(mean(y.map(v => (v - my) ** 2)));
+  const warm = mean(px.map(p => p[0] - p[2])), vivid = mean(px.map(p => Math.max(...p) - Math.min(...p))) / 255;
+  return [palette, [
+    my < 75 ? ["dark", 1] : my > 150 ? ["bright", 1] : ["medium light", 0],
+    warm < 0 ? ["cool", 1] : warm > 45 ? ["warm", 1] : ["neutral", 0],
+    sd < 40 ? ["soft contrast", 1] : sd > 63 ? ["high contrast", 1] : ["normal contrast", 0],
+    vivid < 0.07 ? ["muted colours", 1] : vivid > 0.23 ? ["vivid colours", 1] : ["natural colours", 0],
+  ]];
+}
+function showTone(img) {
+  try {
+    const [palette, words] = tone(img);
+    $("tone").innerHTML = `<div class="palette" role="img" aria-label="Colour palette">${palette.map(([c, share]) =>
+      `<span style="background:${c};flex:${share}" title="${c}, ${Math.round(share * 100)}% of the photo"></span>`).join("")}</div>` +
+      `<div class="tone">${words.map(([w, stands]) => stands ? `<b>${w}</b>` : w).join(" · ")}</div>`;
+  } catch { $("tone").remove(); }
 }
 
 const spice = it => (it.x ?? 0) / 3 * 100;  // x: the tagger's rating averaged by confidence, 0 safe ... 3 explicit
@@ -225,7 +296,10 @@ function render() {
   const n = {};
   for (const it of shown) for (const t of it.t) n[t] = (n[t] || 0) + 1;
   if (like) {  // the starting photo, then the best-matching slide of every other post, most alike first
-    for (const it of shown) it.m = match(it);
+    for (const it of shown) {  // m: [0-1 score, shared tags]; look finds pose and light, tags find the outfit
+      it.m = match(it);
+      if (basis() !== "tags") it.m[0] = basis() === "look" ? lookAlike(it) : (it.m[0] + lookAlike(it)) / 2;
+    }
     const best = new Map();
     for (const it of shown.sort((a, b) => b.m[0] - a.m[0])) if (it.c !== like.c && !best.has(it.c)) best.set(it.c, it);
     shown = [like, ...best.values()];
@@ -243,6 +317,8 @@ function render() {
   $("chips").innerHTML = `<span id="count">${like ? `${(shown.length - 1).toLocaleString()} posts, most alike first`
       : `${shown.length.toLocaleString()} of ${D.items.length.toLocaleString()} photos`}</span>` +
     (like ? `<button class="chip like" id="unlike" aria-label="Stop showing photos like this one"><img src="${src(like)}" alt="">like this photo ✕</button>` : "") +
+    (like?.e ? `<span class="mode" role="group" aria-label="Match by">${[["both", "Both"], ["look", "Look"], ["tags", "Tags"]].map(([k, name]) =>
+      `<button data-by="${k}" aria-pressed="${by === k}">${name}</button>`).join("")}</span>` : "") +
     (spiced ? `<button class="chip" id="unspice" aria-label="Remove suggestiveness filter">suggestive ${lo}–${hi}% ✕</button>` : "") +
     [...sel].map(([t, want]) => `<button class="chip${want ? "" : " no"}" data-t="${esc(t)}" aria-label="Remove filter ${esc(label(t))}">${want ? "" : "not "}${esc(label(t))} ✕</button>`).join("") +
     `<button class="btn" id="anytag" style="height: 32px">+ Any tag</button>` +
@@ -265,15 +341,19 @@ function inspect() {
     `<div class="meta"><strong>@${esc(it.h || D.handle)}</strong><span>${it.d} · slide ${it.n}</span></div>` +
     `<div class="pills"><span class="pill">♥ ${shownLikes(it)}</span>${rating ? `<span class="pill" style="background:${RATING[rating]}">${rating}</span>` : ""}</div>` +
     `<div class="pills">${it.t.filter(t => !RATING[t] && !t.startsWith("@")).map(t => `<button class="tagpill" data-t="${esc(t)}" title="Show only photos with ${esc(t)}">${esc(t)}</button>`).join("")}</div>` +
-    (like && it !== like ? `<div class="why"><b>${Math.round(it.m[0] * 100)}% alike</b> the starting photo. Both have:<div class="pills">` +
+    (like && it !== like ? `<div class="why"><b>${Math.round(it.m[0] * 100)}% alike</b> the starting photo by ` +
+      `${{both: "tags and look", look: "look", tags: "tags"}[basis()]}. Both have:<div class="pills">` +
       (it.m[1].slice(0, 8).map(j => `<button class="bt" data-t="b:${esc(D.vocab[j])}" title="Show only photos with this tag">${esc(tagName(j))}</button>`).join("") ||
         "only tags most photos have") + `</div></div>` : "") +
-    (it.v.size && it !== like ? `<button class="likebtn" id="morelike">More like this</button>` : "") +
+    `<section class="look" aria-label="Look"><h3>Look</h3><div id="tone"></div>${lookTags(it)}</section>` +
+    ((it.v.size || it.e) && it !== like ? `<button class="likebtn" id="morelike">More like this</button>` : "") +
     `<div class="actions"><a class="open" href="https://www.instagram.com/p/${it.c}/?img_index=${it.n}" target="_blank" rel="noopener">Open on Instagram</a>` +
     (location.protocol === "file:" ? "" : `<button class="delphoto" id="delphoto" aria-label="Delete this photo" title="Delete this photo">${TRASH}</button>`) + `</div>` +
     (it.b ? `<details class="booru"><summary>All ${it.b.length} tags the model saw</summary><div class="pills">` +
       it.b.map(([j, pct]) => `<button class="bt" data-t="b:${esc(D.vocab[j])}" title="Show only photos with this tag">${esc(D.vocab[j].replace(/_/g, " "))} <b>${pct}%</b></button>`).join("") +
       `</div></details>` : "");
+  const img = $("inspector").querySelector("img");
+  img.decode().then(() => img.isConnected && showTone(img), () => {});  // a newer pick may have replaced it meanwhile
 }
 
 let byName = false;
@@ -300,6 +380,7 @@ $("chips").onclick = e => {
   const b = e.target.closest("button");
   if (!b) return;
   if (b.id === "anytag") { $("tagbox").showModal(); tagList(); return; }
+  if (b.dataset.by) { by = b.dataset.by; return render(); }
   if (b.id === "clear" || b.id === "unspice") { $("lo").value = 0; $("hi").value = 100; }
   if (b.id === "unlike") {  // back to the grid as it was, on the photo More like this started from
     const [y, start] = back;

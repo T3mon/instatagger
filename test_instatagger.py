@@ -6,6 +6,7 @@ from datetime import datetime
 from pathlib import Path
 
 import instaloader
+import numpy as np
 
 import instatagger
 from instatagger import THRESHOLD, handle_from, parse_tags
@@ -44,9 +45,16 @@ with tempfile.TemporaryDirectory() as d:
         (Path(d) / "out" / h / "thumbs" / "X_1.jpg").write_bytes(b"x")
         (Path(d) / "out" / h / "data.json").write_text(json.dumps({"handle": h, "skipped": 1, "groups": [["Body", ["ass"]]],
             "items": [{"c": "X", "n": 1, "l": 5, "d": "2026-01-01", "f": "X_1.jpg", "t": ["ass"]}]}))
+    col = instatagger.booru_columns()  # profile a has saved scores, so it gets a rating; b doesn't
+    wd = np.zeros((1, len(col)), np.float16)
+    wd[0, col["sensitive"]], wd[0, col["questionable"]] = 0.1, 0.9
+    np.save(Path(d) / "out" / "a" / "wd.npy", wd)
+    (Path(d) / "out" / "a" / "items.json").write_text(json.dumps([{"f": "X_1.jpg"}]))
     instatagger.build_pages()
     page = json.loads((Path(d) / "out" / "index.html").read_text().removeprefix("const D = ").removesuffix(";"))
-assert page["groups"] == [["Model", ["@a", "@b"]], ["Body", ["ass"]]], page["groups"]
-assert [it["h"] for it in page["items"]] == ["a", "b"] and page["items"][0]["t"] == ["ass", "@a"]
+assert [g for g, _ in page["groups"]] == ["Model", "Rating", "Body"], page["groups"]
+assert page["groups"][0] == ["Model", ["@a", "@b"]]
+assert [it["h"] for it in page["items"]] == ["a", "b"] and page["items"][0]["t"] == ["ass", "questionable", "@a"]
+assert abs(page["items"][0]["x"] - 1.9) < 0.01 and "x" not in page["items"][1]
 assert [(r["model"], r["posts"], r["skipped"]) for r in page["stats"]] == [("@a", 1, 1), ("@b", 1, 1), ("All", 2, 2)]
 print("ok")

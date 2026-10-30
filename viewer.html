@@ -44,6 +44,7 @@
     <label>Sort <select id="sort">
       <option value="likes">Most liked</option>
       <option value="least">Least liked</option>
+      <option value="spicy">Most suggestive</option>
       <option value="new">Newest</option>
       <option value="old">Oldest</option>
     </select></label>
@@ -63,6 +64,7 @@ const esc = s => String(s).replace(/[&<>"]/g, c => `&#${c.charCodeAt(0)};`);
 const order = {
   likes: (a, b) => b.l - a.l,
   least: (a, b) => a.l - b.l,
+  spicy: (a, b) => (b.x ?? 0) - (a.x ?? 0) || b.l - a.l,
   new: (a, b) => b.d.localeCompare(a.d) || a.n - b.n,
   old: (a, b) => a.d.localeCompare(b.d) || a.n - b.n,
 };

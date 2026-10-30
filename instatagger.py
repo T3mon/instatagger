@@ -34,6 +34,7 @@ from timm.data import create_transform, resolve_data_config
 HERE = Path(__file__).parent
 MODEL = "SmilingWolf/wd-eva02-large-tagger-v3"  # booru tagger, trained on labels like underboob, pool, no_humans
 THRESHOLD = 0.35  # default cutoff, the tagger's usual one; override per tag with "| 0.5" in tags.txt
+RATINGS = {"general": "safe", "sensitive": "suggestive", "questionable": "questionable", "explicit": "explicit"}  # tagger's own levels
 THUMB = 360
 DEV = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -130,10 +131,14 @@ def booru_scores(thumbs):
     return torch.cat(out).numpy().astype(np.float16)
 
 
+def booru_columns():
+    with open(hf_hub_download(MODEL, "selected_tags.csv"), encoding="utf-8") as f:
+        return {row["name"]: j for j, row in enumerate(csv.DictReader(f))}
+
+
 def tag(wd, groups):
     """A photo gets a tag when any of the tag's booru tags scores >= its cutoff."""
-    with open(hf_hub_download(MODEL, "selected_tags.csv"), encoding="utf-8") as f:
-        col = {row["name"]: j for j, row in enumerate(csv.DictReader(f))}
+    col = booru_columns()
     names, hits = [], []
     for _, tags in groups:
         for name, booru, cutoff in tags:
@@ -166,6 +171,19 @@ def stats_row(model, items, skipped, folder):
             "thumbs": f"{disk_size(thumbs) / 2**20:,.0f} MB", "total": f"{disk_size(files) / 2**20:,.0f} MB"}
 
 
+def add_rating(data, folder, cols):
+    """Tag each shown photo with the tagger's most likely explicitness level, plus a 0-3 score for sorting."""
+    if not (folder / "wd.npy").exists():
+        return
+    wd = np.load(folder / "wd.npy").astype(np.float32)[:, cols]
+    row = {it["f"]: k for k, it in enumerate(json.loads((folder / "items.json").read_text(encoding="utf-8")))}
+    for it in data["items"]:
+        p = wd[row[it["f"]]]
+        it["t"] = it["t"] + [list(RATINGS.values())[p.argmax()]]
+        it["x"] = round(float(p @ np.arange(len(p)) / p.sum()), 3)
+    data["groups"] = [["Rating", list(RATINGS.values())]] + data["groups"]
+
+
 def build_pages():
     """Write every out/<handle>/index.html and the all-models out/index.html from the saved data.json files (no re-tagging)."""
     template = (HERE / "viewer.html").read_text(encoding="utf-8")
@@ -174,8 +192,10 @@ def build_pages():
         path.write_text(template.replace("/*DATA*/null", json.dumps(data).replace("</", "<\\/")), encoding="utf-8")
 
     rows, items, groups = [], [], {"Model": []}
+    col = booru_columns()
     for f in sorted((HERE / "out").glob("*/data.json")):
         d = json.loads(f.read_text(encoding="utf-8"))
+        add_rating(d, f.parent, [col[r] for r in RATINGS])
         rows.append(stats_row("@" + d["handle"], d["items"], d["skipped"], f.parent))
         write(f.parent / "index.html", {**d, "stats": rows[-1:]})
         groups["Model"].append("@" + d["handle"])

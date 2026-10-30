@@ -31,6 +31,12 @@
   .layout { display: flex; flex-wrap: wrap; align-items: flex-start; }
   nav { flex: 1 1 250px; max-width: 290px; padding: 12px 10px 24px; border-right: 1px solid var(--line); position: sticky; top: 106px; max-height: calc(100vh - 106px); overflow-y: auto; }
   nav details { margin-bottom: 6px; }
+  .spice { border: 1px solid var(--line); border-radius: 10px; margin: 0 0 12px; padding: 8px 10px 4px; }
+  .spice legend { padding: 0 4px; font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+  .spice legend span { color: var(--text); text-transform: none; letter-spacing: 0; font-weight: 500; margin-left: 4px; }
+  .spice label { display: flex; align-items: center; gap: 8px; color: var(--muted); }
+  .spice input { flex: 1; accent-color: var(--accent); height: 28px; }
+  .spice p { margin: 2px 0 4px; font-size: 11px; color: var(--muted); }
   nav summary { cursor: pointer; padding: 8px; font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
   .tag { display: flex; align-items: center; gap: 6px; min-height: 34px; padding: 0 4px 0 8px; border-radius: 8px; }
   .tag.yes { background: #2a1420; } .tag.yes .name { color: #f9a8d4; }
@@ -84,7 +90,15 @@
   <div class="chips" id="chips"></div>
 </header>
 <div class="layout">
-  <nav aria-label="Filters" id="filters"></nav>
+  <nav aria-label="Filters" id="filters">
+    <fieldset class="spice">
+      <legend>Suggestiveness <span id="spiceval">0–100%</span></legend>
+      <label>From <input type="range" id="lo" min="0" max="100" step="5" value="0"></label>
+      <label>To <input type="range" id="hi" min="0" max="100" step="5" value="100"></label>
+      <p>0% safe · 33% suggestive · 67% questionable · 100% explicit</p>
+    </fieldset>
+    <div id="taglist"></div>
+  </nav>
   <main>
     <details class="stats" id="statsbox"><summary>Stats</summary><div class="statwrap"><table id="stats"></table></div></details>
     <div id="grid"></div>
@@ -108,14 +122,19 @@ const order = {
 const RATING = {safe: "#14532d", suggestive: "#3b2a12", questionable: "#4c1d1d", explicit: "#5b1230"};
 
 // The filter list is built once; render() only updates counts and states, so open groups stay open
-$("filters").innerHTML = D.groups.map(([g, tags], k) => `<details ${k < 3 ? "open" : ""}><summary>${esc(g)}</summary>${tags.map(t =>
+$("taglist").innerHTML = D.groups.map(([g, tags], k) => `<details ${k < 3 ? "open" : ""}><summary>${esc(g)}</summary>${tags.map(t =>
   `<div class="tag" data-t="${esc(t)}"><span class="name">${esc(t)}</span><span class="n"></span>` +
   `<button class="plus" aria-label="Must have ${esc(t)}" aria-pressed="false">+</button>` +
   `<button class="minus" aria-label="Exclude ${esc(t)}" aria-pressed="false">−</button></div>`).join("")}</details>`).join("");
 const rows = [...document.querySelectorAll(".tag")];
 
+const spice = it => (it.x ?? 0) / 3 * 100;  // x: the tagger's rating averaged by confidence, 0 safe ... 3 explicit
+
 function render() {
-  shown = D.items.filter(it => [...sel].every(([t, want]) => it.t.includes(t) === want)).sort(order[$("sort").value]);
+  const lo = +$("lo").value, hi = +$("hi").value, spiced = lo > 0 || hi < 100;
+  $("spiceval").textContent = `${lo}–${hi}%`;
+  shown = D.items.filter(it => spice(it) >= lo && spice(it) <= hi && [...sel].every(([t, want]) => it.t.includes(t) === want))
+    .sort(order[$("sort").value]);
   const n = {};
   for (const it of shown) for (const t of it.t) n[t] = (n[t] || 0) + 1;
   for (const row of rows) {
@@ -127,8 +146,9 @@ function render() {
     row.querySelector(".plus").disabled = !n[t] && state !== true;
   }
   $("chips").innerHTML = `<span id="count">${shown.length.toLocaleString()} of ${D.items.length.toLocaleString()} photos</span>` +
+    (spiced ? `<button class="chip" id="unspice" aria-label="Remove suggestiveness filter">suggestive ${lo}–${hi}% ✕</button>` : "") +
     [...sel].map(([t, want]) => `<button class="chip${want ? "" : " no"}" data-t="${esc(t)}" aria-label="Remove filter ${esc(t)}">${want ? "" : "not "}${esc(t)} ✕</button>`).join("") +
-    (sel.size ? `<button class="linkbtn" id="clear">Clear all</button>` : `<span style="color:var(--muted)">Use + to require a tag, − to exclude it</span>`);
+    (sel.size || spiced ? `<button class="linkbtn" id="clear">Clear all</button>` : `<span style="color:var(--muted)">Use + to require a tag, − to exclude it</span>`);
   if (!shown.includes(picked)) picked = shown[0] || null;
   $("grid").innerHTML = shown.map((it, i) => `<button data-i="${i}" aria-pressed="${it === picked}" aria-label="${esc(it.t.join(", ") || "no tags")}">` +
     `<img src="${src(it)}" alt="" loading="lazy"><span>♥ ${it.l.toLocaleString()} · ${it.d}${it.h ? " · @" + it.h : ""}</span></button>`).join("");
@@ -156,7 +176,8 @@ $("filters").onclick = e => {
 $("chips").onclick = e => {
   const b = e.target.closest("button");
   if (!b) return;
-  b.id === "clear" ? sel.clear() : sel.delete(b.dataset.t);
+  if (b.id === "clear" || b.id === "unspice") { $("lo").value = 0; $("hi").value = 100; }
+  if (b.id === "clear") sel.clear(); else if (b.dataset.t) sel.delete(b.dataset.t);
   render();
 };
 $("grid").onclick = e => {
@@ -177,6 +198,8 @@ $("find").oninput = () => {
   for (const d of $("filters").querySelectorAll("details")) if (q) d.open = [...d.querySelectorAll(".tag")].some(r => !r.hidden);
 };
 $("sort").onchange = render;
+$("lo").oninput = () => { if (+$("lo").value > +$("hi").value) $("hi").value = $("lo").value; render(); };  // handles can't cross
+$("hi").oninput = () => { if (+$("hi").value < +$("lo").value) $("lo").value = $("hi").value; render(); };
 $("title").textContent = D.title || "@" + D.handle;
 document.title = (D.title || "@" + D.handle) + " · instatagger";
 $("all").hidden = !!D.all;  // the all-models page doesn't link to itself

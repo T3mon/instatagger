@@ -1,59 +1,51 @@
-# One line per tag:  name: what such a photo looks like, in plain words
-# Tags in the same [group] compete for each photo, together with a plain "a photo of a woman"
-# as the "none of these" option, so a photo usually gets one or two tags per group.
-# A tag fires when it wins at least 0.25 of its group. Too many wrong hits: add "| 0.4" after
-# the description. Missing obvious ones: "| 0.15", or describe it differently.
-# "wd:" lines use the booru tagger instead: "name: wd: tag1 tag2" fires when any of those booru tags
-# scores 0.35+ (stricter: add "| 0.5"). Tag names: huggingface.co/SmilingWolf/wd-eva02-large-tagger-v3 (selected_tags.csv)
+# One line per tag:  name: booru tags | cutoff
+# A photo gets the tag when any of its booru tags scores at least 0.35 (stricter: add "| 0.5").
+# Tag names come from the tagger's list: huggingface.co/SmilingWolf/wd-eva02-large-tagger-v3 (selected_tags.csv)
 # After editing, re-tag without touching Instagram:  python instatagger.py <handle> --retag
 
-# [Skip] is special: a photo where one of these wins is left off the page (posts with no person).
-# Its cutoff is 0.5, so it has to clearly beat "a photo of a woman" before a photo is dropped.
+# [Skip] is special: photos with one of these tags are left off the page.
 [Skip]
-text graphic: a graphic with text on a plain background | 0.5
-product shot: a photo of packaging or a gift box | 0.5
-food: a close-up photo of a plate of food | 0.5
+no person: no_humans
 
 [Body part]
-ass: wd: ass
-boobs/cleavage: wd: cleavage
-under boob: wd: underboob
-side boob: wd: sideboob
-abs: wd: abs toned
-stomach: wd: midriff
-back shot: wd: from_behind back looking_back
-thong: wd: thong g-string
-legs: wd: legs thighs long_legs crossed_legs bare_legs
+ass: ass
+boobs/cleavage: cleavage
+under boob: underboob
+side boob: sideboob
+abs: abs toned
+stomach: midriff
+back shot: from_behind back looking_back
+thong: thong g-string
+legs: legs thighs long_legs crossed_legs bare_legs
 
 [Pose]
-lying: wd: lying on_back on_stomach
-hand on hip: wd: hand_on_own_hip
-arms up: wd: arms_up arms_behind_head
-squatting: wd: squatting
-kneeling: wd: kneeling
-all fours: wd: all_fours
-arched back: wd: arched_back
+lying: lying on_back on_stomach
+hand on hip: hand_on_own_hip
+arms up: arms_up arms_behind_head
+squatting: squatting
+kneeling: kneeling
+all fours: all_fours
+arched back: arched_back
 
 [Framing]
-full body: wd: full_body
-face close-up: a close-up portrait of a woman's face
+full body: full_body
+face close-up: close-up portrait
 
 [Outfit]
-bikini: a photo of a woman wearing a bikini
-lingerie: a photo of a woman wearing lace lingerie
-dress: a photo of a woman wearing a dress
-gym wear: a photo of a woman in gym clothes, a sports bra and leggings
-casual: a photo of a woman in casual clothes like jeans and a t-shirt
-topless: wd: topless covering_breasts no_bra
-fully covered: a photo of a woman fully clothed with long sleeves and long pants
-formal: a photo of a woman in an elegant formal evening gown
+bikini: bikini
+lingerie: lingerie
+dress: dress
+gym wear: sportswear sports_bra leggings yoga_pants bike_shorts
+casual: jeans denim t-shirt hoodie
+topless: topless covering_breasts no_bra
+formal: formal evening_gown
 
 [Place]
-beach: a photo of a woman on a sandy beach by the ocean
-pool: a photo of a woman by a swimming pool
-car: a photo of a woman in a car or posing next to a car
-bedroom: a photo of a woman on a bed in a bedroom
-mirror selfie: a mirror selfie of a woman holding her phone
-studio: a studio photoshoot of a woman in front of a plain backdrop
-street/night: a photo of a woman on a city street at night
-nature: a photo of a woman outdoors in nature among trees, rocks or mountains
+beach: beach
+pool: pool poolside
+car: car car_interior motor_vehicle
+bedroom: bed bedroom on_bed
+mirror selfie: mirror selfie
+studio: simple_background
+street/night: night city street
+nature: nature forest tree

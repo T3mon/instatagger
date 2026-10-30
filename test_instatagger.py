@@ -7,7 +7,7 @@ from pathlib import Path
 import instaloader
 
 import instatagger
-from instatagger import THRESHOLD, WD_THRESHOLD, handle_from, parse_tags
+from instatagger import THRESHOLD, handle_from, parse_tags
 
 assert handle_from("https://www.instagram.com/brennahblack/?hl=en") == "brennahblack"
 assert handle_from("@meganblakeirwin") == "meganblakeirwin"
@@ -16,9 +16,8 @@ try:
     raise AssertionError("path-like handle accepted")
 except SystemExit:
     pass
-assert parse_tags("# note\n[Place]\nbeach: on a beach\npool: at a pool | 0.4\n") == [
-    ("Place", [("beach", "on a beach", THRESHOLD), ("pool", "at a pool", 0.4)])]
-assert parse_tags("[Body]\nabs: wd: abs toned\n") == [("Body", [("abs", "wd: abs toned", WD_THRESHOLD)])]
+assert parse_tags("# note\n[Place]\nbeach: beach\npool: pool poolside | 0.5\n") == [
+    ("Place", [("beach", ["beach"], THRESHOLD), ("pool", ["pool", "poolside"], 0.5)])]
 
 # list_photos on a fake profile (no Instagram calls): newest-N limit, one entry per carousel slide, videos skipped
 day = datetime(2026, 10, 1)

@@ -3,8 +3,8 @@
 Tags every photo on an Instagram profile and builds a local page to search them by tag: `ass` + `beach`, exclude `lingerie`, sort by likes. Each result links to the exact post and slide.
 
 - Lists posts with your own Instagram login through [Instaloader](https://instaloader.github.io/), one page of 12 every 6–12 s.
-- Body, pose and framing tags come from the [WD EVA02 booru tagger](https://huggingface.co/SmilingWolf/wd-eva02-large-tagger-v3), outfit and place tags from [LAION CLIP ViT-H/14](https://huggingface.co/laion/CLIP-ViT-H-14-laion2B-s32B-b79K). Both run locally; a GPU is recommended.
-- Photos with no person in them (text slides, food, packaging) are skipped.
+- Tags come from the [WD EVA02 booru tagger](https://huggingface.co/SmilingWolf/wd-eva02-large-tagger-v3), which runs locally; a GPU is recommended. `tags.txt` maps your tag names to its tags.
+- Photos with no person in them (scenery, text slides, food) are skipped.
 - Full-size photos are never saved. `out/<handle>/` keeps small previews, cached scores and `index.html`.
 
 ## Setup

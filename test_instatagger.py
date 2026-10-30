@@ -36,6 +36,15 @@ with tempfile.TemporaryDirectory() as d:
     got = instatagger.list_photos("someone", 2)
 assert [(url, it["f"]) for url, it in got] == [("u/A", "A_1.jpg"), ("u/B1", "B_1.jpg")], got
 
+# no_girl: nobody, or a group without a girl, is skipped; a lone "man" is kept (the tagger misreads women in suits)
+col = instatagger.booru_columns()
+wd = np.zeros((4, len(col)), np.float16)
+wd[0, col["no_humans"]] = 0.9                                    # food, scenery
+wd[1, col["1boy"]], wd[1, col["multiple_boys"]] = 0.9, 0.9      # two men
+wd[2, col["1boy"]], wd[2, col["solo"]] = 0.95, 0.95             # her in a suit, read as a man
+wd[3, col["1girl"]], wd[3, col["solo"]] = 0.99, 0.97             # her
+assert instatagger.no_girl(wd).tolist() == [True, True, False, False]
+
 # build_pages: one all-models page from each profile's data.json, with a Model row and a stats line per profile + total
 with tempfile.TemporaryDirectory() as d:
     instatagger.HERE = Path(d)

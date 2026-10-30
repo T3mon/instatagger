@@ -35,6 +35,7 @@ HERE = Path(__file__).parent
 MODEL = "SmilingWolf/wd-eva02-large-tagger-v3"  # booru tagger, trained on labels like underboob, pool, no_humans
 THRESHOLD = 0.35  # default cutoff, the tagger's usual one; override per tag with "| 0.5" in tags.txt
 RATINGS = {"general": "safe", "sensitive": "suggestive", "questionable": "questionable", "explicit": "explicit"}  # tagger's own levels
+GIRLS = ["1girl", "2girls", "3girls", "4girls", "5girls", "6+girls", "multiple_girls"]
 THUMB = 360
 DEV = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -136,6 +137,14 @@ def booru_columns():
         return {row["name"]: j for j, row in enumerate(csv.DictReader(f))}
 
 
+def no_girl(wd):
+    """Pre-screen: nobody in the photo, or people but no girl and no single subject (men, crowds, stages).
+    A lone figure the tagger calls male is kept: it takes women in suits or with slicked-back hair for men."""
+    col = booru_columns()
+    girl = wd[:, [col[t] for t in GIRLS]].max(axis=1)
+    return (wd[:, col["no_humans"]] >= 0.35) | ((girl < 0.45) & (wd[:, col["solo"]] < 0.5))
+
+
 def tag(wd, groups):
     """A photo gets a tag when any of the tag's booru tags scores >= its cutoff."""
     col = booru_columns()
@@ -213,11 +222,13 @@ def main():
     handle = handle_from(sys.argv[1])
     limit = next((int(a) for a in sys.argv[2:] if a.isdigit()), None)
     out = HERE / "out" / handle
+    skipped_file = out / "skipped.json"  # photos the pre-screen threw out: never downloaded again
+    skipped = set(json.loads(skipped_file.read_text(encoding="utf-8"))) if skipped_file.exists() else set()
     if "--retag" in sys.argv:
         items = json.loads((out / "items.json").read_text(encoding="utf-8"))
     else:
         print("Listing posts, one page of 12 every 6-12 s...", flush=True)
-        photos = {it["f"]: (url, it) for url, it in list_photos(handle, limit)}  # dedupes repeats
+        photos = {it["f"]: (url, it) for url, it in list_photos(handle, limit) if it["f"] not in skipped}  # dedupes repeats
         (out / "thumbs").mkdir(parents=True, exist_ok=True)
         print(f"Fetching and tagging {len(photos)} photos...", flush=True)
         jobs = [(url, out / "thumbs" / f) for f, (url, _) in photos.items()]
@@ -235,18 +246,26 @@ def main():
         np.save(out / "wd.npy", booru_scores([out / "thumbs" / it["f"] for it in items]))
     wd = np.load(out / "wd.npy")
     groups = parse_tags((HERE / "tags.txt").read_text(encoding="utf-8"))
-    for it, tags in zip(items, tag(wd, groups)):
-        it["t"] = tags
-    skip = {name for g, tags in groups if g.lower() == "skip" for name, _, _ in tags}
-    shown = [it for it in items if not skip.intersection(it["t"])]  # posts with no person: scenery, text slides...
-    data = {"handle": handle, "items": shown, "skipped": len(items) - len(shown),
-            "groups": [[g, [name for name, _, _ in tags]] for g, tags in groups if g.lower() != "skip"]}
+    tags = tag(wd, groups)
+    extra = {name for g, group in groups if g.lower() == "skip" for name, _, _ in group}
+    drop = no_girl(wd) | np.array([bool(extra.intersection(t)) for t in tags])
+    if drop.any():  # skipped photos lose their preview and scores, and are remembered so they're never fetched again
+        for it in [it for it, d in zip(items, drop) if d]:
+            (out / "thumbs" / it["f"]).unlink(missing_ok=True)
+            skipped.add(it["f"])
+        skipped_file.write_text(json.dumps(sorted(skipped)), encoding="utf-8")
+        items, wd, tags = [it for it, d in zip(items, drop) if not d], wd[~drop], [t for t, d in zip(tags, drop) if not d]
+        (out / "items.json").write_text(json.dumps(items), encoding="utf-8")
+        np.save(out / "wd.npy", wd)
+    for it, t in zip(items, tags):
+        it["t"] = t
+    groups = [(g, group) for g, group in groups if g.lower() != "skip"]
+    data = {"handle": handle, "items": items, "skipped": len(skipped), "groups": [[g, [name for name, _, _ in group]] for g, group in groups]}
     (out / "data.json").write_text(json.dumps(data), encoding="utf-8")
     build_pages()
-    for g, tags in groups:
-        counted = items if g.lower() == "skip" else shown
-        print(f"{g}: " + ", ".join(f"{name} {sum(name in it['t'] for it in counted)}" for name, _, _ in tags))
-    print(f"{len(shown)} photos shown, {len(items) - len(shown)} skipped -> {out / 'index.html'}")
+    for g, group in groups:
+        print(f"{g}: " + ", ".join(f"{name} {sum(name in it['t'] for it in items)}" for name, _, _ in group))
+    print(f"{len(items)} photos -> {out / 'index.html'} | {int(drop.sum())} without a girl skipped and deleted now, {len(skipped)} in total")
     print(f"All models: {HERE / 'out' / 'index.html'}")
 
 

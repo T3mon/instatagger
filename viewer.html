@@ -97,7 +97,7 @@ $("sort").onchange = () => render();
 $("clear").onclick = () => { sel.clear(); render(); };
 $("title").textContent = document.title = D.title || "@" + D.handle;
 $("all").hidden = !!D.all;  // the all-models page doesn't link to itself
-const cols = [["model", "Model"], ["posts", "Posts"], ["photos", "Photos"], ["skipped", "Skipped (no person)"], ["from", "Oldest"],
+const cols = [["model", "Model"], ["posts", "Posts"], ["photos", "Photos"], ["skipped", "Skipped (no girl)"], ["from", "Oldest"],
   ["to", "Newest"], ["likes", "Median ♥"], ["top", "Top tags"], ["thumbs", "Previews on disk"], ["total", "All files on disk"]];
 $("statsbox").hidden = !D.stats;
 if (D.stats) $("stats").innerHTML = `<tr>${cols.map(([, h]) => `<th>${h}</th>`).join("")}</tr>` +

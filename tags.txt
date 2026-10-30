@@ -3,9 +3,9 @@
 # Tag names come from the tagger's list: huggingface.co/SmilingWolf/wd-eva02-large-tagger-v3 (selected_tags.csv)
 # After editing, re-tag without touching Instagram:  python instatagger.py <handle> --retag
 
-# [Skip] is special: photos with one of these tags are left off the page.
+# Photos without a girl are skipped before tagging and their previews deleted (built into instatagger.py).
+# [Skip] adds more reasons: a photo with one of these tags is skipped and deleted the same way.
 [Skip]
-no person: no_humans
 
 [Body part]
 ass: ass

@@ -4,7 +4,7 @@ Tags every photo on an Instagram profile and builds a local page to search them 
 
 - Lists posts with your own Instagram login through [Instaloader](https://instaloader.github.io/), one page of 12 every 6–12 s.
 - Tags come from the [WD EVA02 booru tagger](https://huggingface.co/SmilingWolf/wd-eva02-large-tagger-v3), which runs locally; a GPU is recommended. `tags.txt` maps your tag names to its tags.
-- Photos with no person in them (scenery, text slides, food) are skipped.
+- Photos without a girl in them (scenery, food, text slides, crowds, groups of men) are skipped before tagging: their previews are deleted and they're never downloaded again.
 - Full-size photos are never saved. `out/<handle>/` keeps small previews, cached scores and `index.html`.
 
 ## Setup

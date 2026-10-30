@@ -124,8 +124,22 @@ with tempfile.TemporaryDirectory() as d:
     assert [it["l"] for it in m["best"]] == [300] * 4 and m["files"] == 2, m
     assert got["settings"]["groups"] == [["Body", 1]] and got["settings"]["session"] is None, got["settings"]
     assert call("POST", "/api/delete", {"u": "nobody"})[0] == 404
+    # deleting photos: preview, entry and score row go together, and they're remembered so a re-run skips them
+    (folder / "items.json").write_text(json.dumps([{k: v for k, v in it.items() if k != "t"} for it in items]))
+    wd = np.zeros((30, len(instatagger.booru_columns())), np.float16)
+    wd[:, 0] = np.arange(30)
+    np.save(folder / "wd.npy", wd)
+    assert call("POST", "/api/delete", {"u": "a", "files": ["P0_1.jpg", "nope.jpg"]}) == (200, {"deleted": 1})
+    assert call("POST", "/api/delete", {"u": "a", "years": "2026"})[0] == 400
+    with serve.files_lock:  # waits for the page rebuild
+        assert not (folder / "thumbs" / "P0_1.jpg").exists() and json.loads((folder / "removed.json").read_text()) == ["P0_1.jpg"]
+        assert np.load(folder / "wd.npy")[:, 0].tolist() == list(range(1, 30)) and len(json.loads((folder / "items.json").read_text())) == 29
+        assert len(json.loads((folder / "data.json").read_text())["items"]) == 29
     serve.start("b", [sys.executable, "-c", "import time; time.sleep(30)"])
     assert call("POST", "/api/delete", {"u": "a"})[0] == 409 and folder.exists()  # not while a run is going
+    assert call("POST", "/api/delete", {"u": "a", "years": [2027, 2030]}) == (200, {"deleted": 0})  # photos of another model are fine
+    serve.run["handle"] = "a"
+    assert call("POST", "/api/delete", {"u": "a", "years": [2026, 2026]})[0] == 409  # but not hers while she's being added
     serve.run["proc"].kill()
     serve.run["proc"].wait()
     assert call("POST", "/api/delete", {"u": "a"}) == (200, {"deleted": "a"}) and not folder.exists()

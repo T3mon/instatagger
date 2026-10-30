@@ -188,6 +188,28 @@ def disk_size(files):
     return sum(-(-f.stat().st_size // cluster) * cluster for f in files)
 
 
+def saved_set(path):
+    return set(json.loads(path.read_text(encoding="utf-8"))) if path.exists() else set()
+
+
+def remove_photos(folder, files):
+    """Delete photos from a model's library (preview, scores, entry). They're remembered in removed.json,
+    so a re-run never downloads them again. Returns how many were removed."""
+    items = json.loads((folder / "items.json").read_text(encoding="utf-8"))
+    keep = [k for k, it in enumerate(items) if it["f"] not in files]
+    gone = [it["f"] for it in items if it["f"] in files]
+    for f in gone:
+        (folder / "thumbs" / f).unlink(missing_ok=True)
+    (folder / "removed.json").write_text(json.dumps(sorted(saved_set(folder / "removed.json") | set(gone))), encoding="utf-8")
+    if (folder / "wd.npy").exists():  # one row per items.json entry, so both shrink together
+        np.save(folder / "wd.npy", np.load(folder / "wd.npy")[keep])
+    (folder / "items.json").write_text(json.dumps([items[k] for k in keep]), encoding="utf-8")
+    data = json.loads((folder / "data.json").read_text(encoding="utf-8"))
+    data["items"] = [it for it in data["items"] if it["f"] not in files]
+    (folder / "data.json").write_text(json.dumps(data), encoding="utf-8")
+    return len(gone)
+
+
 def add_scores(data, folder, cols, general):
     """Per shown photo: the tagger's most likely explicitness level as a tag, a 0-3 score for sorting,
     and "b": every general booru tag it saw (score >= THRESHOLD) as [column, percent], strongest first."""
@@ -237,12 +259,13 @@ def main():
     limit = next((int(a) for a in sys.argv[2:] if a.isdigit()), None)
     out = HERE / "out" / handle
     skipped_file = out / "skipped.json"  # photos the pre-screen threw out: never downloaded again
-    skipped = set(json.loads(skipped_file.read_text(encoding="utf-8"))) if skipped_file.exists() else set()
+    skipped = saved_set(skipped_file)
+    removed = saved_set(out / "removed.json")  # photos you deleted: never downloaded again either
     if "--retag" in sys.argv:
         items = json.loads((out / "items.json").read_text(encoding="utf-8"))
     else:
         print("Step 1/3: listing posts, one page of 12 every 6-12 s", flush=True)
-        photos = {it["f"]: (url, it) for url, it in list_photos(handle, limit) if it["f"] not in skipped}  # dedupes repeats
+        photos = {it["f"]: (url, it) for url, it in list_photos(handle, limit) if it["f"] not in skipped | removed}  # dedupes repeats
         (out / "thumbs").mkdir(parents=True, exist_ok=True)
         print(f"Step 2/3: downloading {len(photos)} photos", flush=True)
         jobs = [(url, out / "thumbs" / f) for f, (url, _) in photos.items()]

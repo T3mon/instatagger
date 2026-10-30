@@ -17,7 +17,7 @@
   header { position: sticky; top: 0; z-index: 2; background: var(--bg); border-bottom: 1px solid var(--line); }
   .top { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 16px; padding: 10px 16px; }
   .brand { font-weight: 600; font-size: 16px; text-decoration: none; }
-  #title { color: var(--muted); }
+  #title { font-size: 20px; font-weight: 700; padding-left: 16px; border-left: 1px solid var(--line); }
   .search { flex: 1 1 260px; display: flex; align-items: center; gap: 8px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 0 12px; height: 40px; }
   .search input { flex: 1; background: transparent; border: 0; outline: none; }
   select { height: 40px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 0 10px; }
@@ -84,6 +84,12 @@
   .booru summary { cursor: pointer; color: var(--muted); margin-bottom: 8px; }
   .bt { display: inline-flex; min-height: 28px; font-size: 12px; }
   .open { height: 40px; display: flex; align-items: center; justify-content: center; border-radius: 10px; background: var(--text); color: var(--bg); text-decoration: none; font-weight: 500; }
+  .delphoto { height: 36px; border-radius: 10px; border: 1px solid #5b1d1d; background: transparent; color: #ff9592; }
+  .spin { display: inline-block; width: 16px; height: 16px; border: 3px solid var(--line); border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite; vertical-align: middle; }
+  .loading { grid-column: 1 / -1; display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 80px 0; color: var(--muted); }
+  .loading .spin { width: 36px; height: 36px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .spin { animation-duration: 3s; } }
   @media (max-width: 900px) { nav, aside { position: static; max-height: none; max-width: none; border: 0; } }
 </style>
 </head>
@@ -124,7 +130,7 @@
     <div id="taglist"></div>
   </nav>
   <main>
-    <div id="grid"></div>
+    <div id="grid"><div class="loading"><span class="spin"></span>Loading photos...</div></div>
   </main>
   <aside aria-label="Selected photo" id="inspector"></aside>
 </div>
@@ -211,6 +217,7 @@ function inspect() {
     `<div class="pills"><span class="pill">♥ ${shownLikes(it)}</span>${rating ? `<span class="pill" style="background:${RATING[rating]}">${rating}</span>` : ""}</div>` +
     `<div class="pills">${it.t.filter(t => !RATING[t] && !t.startsWith("@")).map(t => `<button class="tagpill" data-t="${esc(t)}" title="Show only photos with ${esc(t)}">${esc(t)}</button>`).join("")}</div>` +
     `<a class="open" href="https://www.instagram.com/p/${it.c}/?img_index=${it.n}" target="_blank" rel="noopener">Open on Instagram</a>` +
+    (location.protocol === "file:" ? "" : `<button class="delphoto" id="delphoto">Delete this photo</button>`) +
     (it.b ? `<details class="booru"><summary>All ${it.b.length} tags the model saw</summary><div class="pills">` +
       it.b.map(([j, pct]) => `<button class="bt" data-t="b:${esc(D.vocab[j])}" title="Show only photos with this tag">${esc(D.vocab[j].replace(/_/g, " "))} <b>${pct}%</b></button>`).join("") +
       `</div></details>` : "");
@@ -252,7 +259,22 @@ $("grid").onclick = e => {
   b.setAttribute("aria-pressed", "true");
   inspect();
 };
+async function deletePhoto(b) {  // two clicks: the first one only arms it
+  if (!b.dataset.armed) { b.dataset.armed = 1; b.textContent = "Click again to delete it for good"; return; }
+  const it = picked, i = shown.indexOf(it);
+  b.disabled = true;
+  b.innerHTML = `<span class="spin"></span> Deleting...`;
+  try {
+    const r = await fetch("/api/delete", {method: "POST", headers: {"X-Instatagger": "1", "Content-Type": "application/json"},
+      body: JSON.stringify({u: it.h || D.handle, files: [it.f]})});
+    if (!r.ok) throw new Error((await r.json()).error);
+  } catch (err) { b.disabled = false; delete b.dataset.armed; b.textContent = `Couldn't delete: ${err.message}`; return; }
+  D.items.splice(D.items.indexOf(it), 1);
+  picked = shown[i + 1] || shown[i - 1] || null;  // the next photo takes its place, so cleaning up is click, click, next
+  render();
+}
 $("inspector").onclick = e => {
+  if (e.target.closest("#delphoto")) return deletePhoto(e.target.closest("#delphoto"));
   const b = e.target.closest(".tagpill, .bt");
   if (b) { sel.set(b.dataset.t, true); render(); }
 };

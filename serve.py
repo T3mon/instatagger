@@ -22,6 +22,7 @@ import instatagger
 HERE = Path(__file__).parent
 PORT = 8765
 run = {"handle": None, "proc": None, "log": [], "started": 0, "ended": None}  # one run at a time: Instagram sees one listing
+files_lock, stale = threading.Lock(), threading.Event()  # deletes and page rebuilds take turns on the library files
 
 
 def recent_stats(posts, followers):
@@ -75,7 +76,8 @@ def model_stats(folder, cols):
             "rating": {r: sum(r in it["t"] for it in items) for r in levels} if scored else None,
             "spice": round(mean(it["x"] for it in items) / 3 * 100) if scored else None,
             "top": tags.most_common(8), "lift": sorted(([t, round(x, 2)] for t, x in lift.items()), key=lambda r: -r[1])[:5],
-            "best": [{k: it[k] for k in "cnfl"} for it in show],
+            "best": [{k: it[k] for k in "cnfl"} for it in show], "years": dict(sorted(Counter(d[:4] for d in dates).items())),
+            "removed": len(instatagger.saved_set(folder / "removed.json")),
             "thumbs": instatagger.disk_size([f for f in files if f.parent.name == "thumbs"]), "disk": instatagger.disk_size(files),
             "files": len(files), "updated": datetime.fromtimestamp((folder / "data.json").stat().st_mtime).isoformat(timespec="minutes")}
 
@@ -86,6 +88,17 @@ def settings():
             "groups": [[g, len(t)] for g, t in instatagger.parse_tags((HERE / "tags.txt").read_text(encoding="utf-8")) if g != "Skip"],
             "session": datetime.fromtimestamp(session.stat().st_mtime).date().isoformat() if session.exists() else None,
             "free": shutil.disk_usage(HERE).free}
+
+
+def rebuild_later():
+    """Rebuild the pages in the background after photo deletes; deletes in a row share one rebuild."""
+    def go():
+        with files_lock:
+            if stale.is_set():
+                stale.clear()
+                instatagger.build_pages()
+    stale.set()
+    threading.Thread(target=go, daemon=True).start()
 
 
 def busy():
@@ -171,15 +184,29 @@ class Handler(SimpleHTTPRequestHandler):
             folder = HERE / "out" / handle
             if not (folder / "data.json").exists():
                 return self.reply(404, {"error": f"@{handle} isn't in the library"})
-            if busy():
+            years, files = body.get("years"), body.get("files")
+            if busy() and (run["handle"] == handle or years is None and files is None):  # a run's last step reads every model
                 return self.reply(409, {"error": f"Still adding @{run['handle']}: wait for it to finish"})
-            try:
-                shutil.rmtree(folder)
-                error = None
-            except OSError as e:  # e.g. a file still open in another program
-                error = f"Some of her files couldn't be deleted: {e}"
-            instatagger.build_pages()  # her photos leave the all-models page
-            return self.reply(500, {"error": error}) if error else self.reply(200, {"deleted": handle})
+            if years is None and files is None:  # the whole model
+                with files_lock:
+                    try:
+                        shutil.rmtree(folder)
+                        error = None
+                    except OSError as e:  # e.g. a file still open in another program
+                        error = f"Some of her files couldn't be deleted: {e}"
+                    instatagger.build_pages()  # her photos leave the all-models page
+                return self.reply(500, {"error": error}) if error else self.reply(200, {"deleted": handle})
+            if years is not None:  # [first, last] year, both included
+                if not (isinstance(years, list) and len(years) == 2 and all(isinstance(y, int) for y in years)):
+                    return self.reply(400, {"error": "years must be [first, last]"})
+                items = json.loads((folder / "data.json").read_text(encoding="utf-8"))["items"]
+                files = [it["f"] for it in items if years[0] <= int(it["d"][:4]) <= years[1]]
+            elif not (isinstance(files, list) and all(isinstance(f, str) for f in files)):
+                return self.reply(400, {"error": "files must be a list of photo file names"})
+            with files_lock:
+                n = instatagger.remove_photos(folder, set(files))  # only names in her library are touched
+            rebuild_later()
+            return self.reply(200, {"deleted": n})
         limit = body.get("limit")
         if limit is not None and (not isinstance(limit, int) or limit < 1):
             return self.reply(400, {"error": "The post limit must be a whole number, 1 or more"})

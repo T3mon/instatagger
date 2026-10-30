@@ -14,7 +14,7 @@
   :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   header { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 16px; padding: 10px 16px; border-bottom: 1px solid var(--line); }
   .brand { font-weight: 600; font-size: 16px; text-decoration: none; }
-  header span { color: var(--muted); flex: 1; }
+  header .title { flex: 1; font-size: 20px; font-weight: 700; padding-left: 16px; border-left: 1px solid var(--line); }
   .btn { height: 40px; display: inline-flex; align-items: center; padding: 0 16px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel); text-decoration: none; }
   .btn.main { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 500; }
   .btn.del { color: #ff9592; margin-left: auto; }
@@ -43,22 +43,33 @@
   section.box { padding: 18px; border-radius: 14px; background: var(--panel); border: 1px solid var(--line); }
   table { border-collapse: collapse; }
   td { padding: 4px 16px 4px 0; vertical-align: top; } td:first-child { color: var(--muted); white-space: nowrap; }
+  select { height: 36px; color: var(--text); background: var(--raise); border: 1px solid var(--line); border-radius: 8px; padding: 0 8px; font: inherit; }
+  .range { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+  .range .btn { height: 36px; color: #ff9592; }
+  .spin { display: inline-block; width: 18px; height: 18px; border: 3px solid var(--line); border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite; vertical-align: middle; }
+  .big { width: 36px; height: 36px; }
+  .loading { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 60px 0; color: var(--muted); grid-column: 1 / -1; }
+  #toast { position: fixed; top: 12px; left: 50%; transform: translateX(-50%); z-index: 5; display: flex; align-items: center; gap: 10px;
+    padding: 10px 16px; border-radius: 10px; background: var(--raise); border: 1px solid var(--line); box-shadow: 0 6px 24px #000a; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .spin { animation-duration: 3s; } }
 </style>
 </head>
 <body>
 <header>
   <a class="brand" href="/">instatagger</a>
-  <span>Models</span>
+  <span class="title">Models</span>
   <a class="btn" href="/">All models</a>
   <a class="btn main" href="/add" target="_blank">+ Add model</a>
 </header>
+<div id="toast" role="status" hidden><span class="spin"></span><span id="toasttext"></span></div>
 <main>
   <div>
     <h1>Your models</h1>
-    <p class="sum" id="sum">Loading...</p>
+    <p class="sum" id="sum"></p>
     <p id="msg" role="alert"></p>
   </div>
-  <div id="cards"></div>
+  <div id="cards"><div class="loading"><span class="spin big"></span>Loading your models: reading every photo's scores takes a few seconds</div></div>
   <section class="box" aria-labelledby="sethead">
     <h2 id="sethead">Settings</h2>
     <table id="settings"></table>
@@ -74,12 +85,13 @@ const size = b => b >= 2 ** 30 ? `${(b / 2 ** 30).toFixed(1)} GB` : `${Math.roun
 const post = it => `https://www.instagram.com/p/${it.c}/?img_index=${it.n}`;
 const COLORS = {safe: "#4ade80", suggestive: "#fbbf72", questionable: "#f87171", explicit: "#c13584"};
 let M = null;
+const working = text => { $("toast").hidden = !text; $("toasttext").textContent = text || ""; };  // falsy: done
 
 function card(m, running) {
   const pct = n => `${Math.round(n / Math.max(m.photos, 1) * 100)}%`;
   const rows = [
     ["Photos", `${num(m.photos)} from ${num(m.posts)} posts (${(m.photos / Math.max(m.posts, 1)).toFixed(1)} per post)`],
-    ["Skipped", `${num(m.skipped)} without a girl`],
+    ["Skipped", `${num(m.skipped)} without a girl` + (m.removed ? `, ${num(m.removed)} deleted by you` : "")],
     ["Posted", m.oldest ? `${m.oldest} to ${m.newest}, about ${m.per_week} photo posts a week` : "-"],
     ["Likes", m.likes ? `median ${num(m.likes)}, average ${num(m.likes_avg)}, most ${num(m.likes_max)}` : "hidden on all her photos"],
     ["Hidden likes", m.hidden ? `${num(m.hidden)} photos (${pct(m.hidden)})` : "none"],
@@ -88,7 +100,8 @@ function card(m, running) {
     ["Updated", m.updated.replace("T", " ")],
   ];
   const mix = m.rating ? Object.entries(m.rating) : [];
-  return `<article class="card">
+  const years = Object.keys(m.years), opts = pick => years.map(y => `<option ${y === pick ? "selected" : ""}>${y}</option>`).join("");
+  return `<article class="card" data-h="${esc(m.handle)}">
     <div class="thumbs">${m.best.map(it => `<a href="${post(it)}" target="_blank" rel="noopener" title="Open on Instagram">
       <img src="/${encodeURIComponent(m.handle)}/thumbs/${encodeURIComponent(it.f)}" alt="" loading="lazy">${it.l > 3 ? `<span>♥ ${num(it.l)}</span>` : ""}</a>`).join("")}</div>
     <div class="name"><a href="/${encodeURIComponent(m.handle)}/index.html">@${esc(m.handle)}</a>
@@ -99,10 +112,14 @@ function card(m, running) {
     <dl>${rows.map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join("")}</dl>
     <div><h3>Top tags</h3><div class="chips">${m.top.map(([t, n]) => `<span>${esc(t)} <b>${pct(n)}</b></span>`).join("") || "none"}</div></div>
     ${m.lift.length ? `<div><h3>Most liked tags, against her median</h3><div class="chips">${m.lift.map(([t, x]) => `<span>${esc(t)} <b>×${x}</b></span>`).join("")}</div></div>` : ""}
+    ${years.length ? `<div><h3>Photos per year: ${years.map(y => `${y} ${m.years[y]}`).join(", ")}</h3>
+      <div class="range"><label>Delete photos from <select class="yfrom" aria-label="From year">${opts(years[0])}</select></label>
+        <label>to <select class="yto" aria-label="To year">${opts(years[0])}</select></label>
+        <button class="btn" data-act="range" ${running ? "disabled" : ""}></button></div></div>` : ""}
     <div class="row">
       <a class="btn" href="/${encodeURIComponent(m.handle)}/index.html">Open</a>
       <a class="btn" href="/add?u=${encodeURIComponent(m.handle)}" target="_blank">Add new posts</a>
-      <button class="btn del" data-h="${esc(m.handle)}" ${running ? `disabled title="Wait for @${esc(running)} to finish adding"` : ""}>Delete</button>
+      <button class="btn del" data-act="model" ${running ? `disabled title="Wait for @${esc(running)} to finish adding"` : ""}>Delete</button>
     </div>
   </article>`;
 }
@@ -115,6 +132,7 @@ async function load() {
     `${num(add("skipped"))} skipped · ${size(add("disk"))} on disk, ${size(M.settings.free)} free` +
     (M.running ? ` · adding @${M.running} now` : "");
   $("cards").innerHTML = ms.map(m => card(m, M.running)).join("") || `<p class="muted">No models yet. <a href="/add">Add one</a>.</p>`;
+  document.querySelectorAll(".range").forEach(rangeCount);
   const s = M.settings, tags = s.groups.reduce((a, [, n]) => a + n, 0);
   const row = (k, v) => `<tr><td>${k}</td><td>${v}</td></tr>`;
   $("settings").innerHTML =
@@ -126,17 +144,37 @@ async function load() {
     row("Free space", size(s.free));
 }
 
-$("cards").onclick = async e => {
-  const b = e.target.closest("button.del");
-  if (!b) return;
-  const m = M.models.find(m => m.handle === b.dataset.h);
-  if (!confirm(`Delete @${m.handle} from the library?\n\nHer ${m.photos.toLocaleString()} photos, previews and scores (${size(m.disk)}) are removed from this computer. ` +
-    "Nothing changes on Instagram. Adding her again downloads everything again.")) return;
-  b.disabled = true;
+function span(r) {  // the picked years, either order, and how many photos are in them
+  const card = r.closest(".card"), m = M.models.find(m => m.handle === card.dataset.h);
+  const ys = [+r.querySelector(".yfrom").value, +r.querySelector(".yto").value].sort((a, b) => a - b);
+  return {m, ys, n: Object.entries(m.years).filter(([y]) => y >= ys[0] && y <= ys[1]).reduce((a, [, n]) => a + n, 0)};
+}
+function rangeCount(r) {
+  const {ys, n} = span(r);
+  r.querySelector("button").textContent = `Delete ${n.toLocaleString()} photos (${ys[0] === ys[1] ? ys[0] : ys.join("–")})`;
+}
+$("cards").onchange = e => e.target.closest(".range") && rangeCount(e.target.closest(".range"));
+
+async function remove(m, body, question, doing) {
+  if (!confirm(question)) return;
   $("msg").textContent = "";
-  try { await api("/api/delete", {method: "POST", body: JSON.stringify({u: m.handle})}); }
-  catch (err) { $("msg").textContent = `Couldn't delete @${m.handle}: ${err.message}`; }
-  load();
+  working(doing);
+  try { await api("/api/delete", {method: "POST", body: JSON.stringify({u: m.handle, ...body})}); }
+  catch (err) { $("msg").textContent = `Couldn't delete: ${err.message}`; }
+  working("Updating the numbers...");
+  await load();
+  working(null);
+}
+
+$("cards").onclick = e => {
+  const b = e.target.closest("button[data-act]");
+  if (!b) return;
+  const m = M.models.find(m => m.handle === b.closest(".card").dataset.h);
+  if (b.dataset.act === "model") return remove(m, {}, `Delete @${m.handle} from the library?\n\nHer ${m.photos.toLocaleString()} photos, previews and scores (${size(m.disk)}) are removed from this computer. ` +
+    "Nothing changes on Instagram. Adding her again downloads everything again.", `Deleting @${m.handle}...`);
+  const {ys, n} = span(b.closest(".range"));
+  if (n) remove(m, {years: ys}, `Delete ${n.toLocaleString()} photos of @${m.handle} posted ${ys[0]}–${ys[1]}?\n\n` +
+    "Their previews and scores are removed from this computer and they won't be downloaded again. Nothing changes on Instagram.", `Deleting ${n.toLocaleString()} photos...`);
 };
 load();
 </script>

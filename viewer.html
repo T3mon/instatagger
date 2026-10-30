@@ -31,12 +31,21 @@
   .layout { display: flex; flex-wrap: wrap; align-items: flex-start; }
   nav { flex: 1 1 250px; max-width: 290px; padding: 12px 10px 24px; border-right: 1px solid var(--line); position: sticky; top: 106px; max-height: calc(100vh - 106px); overflow-y: auto; }
   nav details { margin-bottom: 6px; }
-  .spice { border: 1px solid var(--line); border-radius: 10px; margin: 0 0 12px; padding: 8px 10px 4px; }
-  .spice legend { padding: 0 4px; font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
-  .spice legend span { color: var(--text); text-transform: none; letter-spacing: 0; font-weight: 500; margin-left: 4px; }
-  .spice label { display: flex; align-items: center; gap: 8px; color: var(--muted); }
-  .spice input { flex: 1; accent-color: var(--accent); height: 28px; }
-  .spice p { margin: 2px 0 4px; font-size: 11px; color: var(--muted); }
+  .spice { padding: 0 8px 12px; margin-bottom: 8px; border-bottom: 1px solid var(--line); }
+  .spice h2 { margin: 8px 0 4px; font-size: 15px; font-weight: 600; }
+  .spice .range { margin: 0 0 6px; font-weight: 600; }
+  .dual { position: relative; height: 32px; margin: 0 10px 8px; }
+  .dual .track, .dual .fill { position: absolute; top: 14px; height: 4px; border-radius: 2px; }
+  .dual .track { left: 0; right: 0; background: #3f3f46; }
+  .dual .fill { background: var(--accent); }
+  .dual input { position: absolute; inset: 0; width: 100%; margin: 0; background: none; pointer-events: none; -webkit-appearance: none; appearance: none; }
+  .dual input::-webkit-slider-thumb { -webkit-appearance: none; pointer-events: auto; width: 22px; height: 22px; border-radius: 50%; background: var(--bg); border: 5px solid var(--accent); cursor: pointer; }
+  .dual input::-moz-range-thumb { pointer-events: auto; width: 14px; height: 14px; border-radius: 50%; background: var(--bg); border: 5px solid var(--accent); cursor: pointer; }
+  .dual input::-webkit-slider-runnable-track { background: none; }
+  #presets button { display: flex; width: 100%; justify-content: space-between; min-height: 32px; padding: 0 8px; border: 0; border-radius: 8px; background: transparent; text-align: left; }
+  #presets button:hover { background: var(--raise); }
+  #presets button[aria-pressed="true"] { background: #2a1420; color: #f9a8d4; font-weight: 600; }
+  #presets span { color: var(--muted); font-size: 12px; }
   nav summary { cursor: pointer; padding: 8px; font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
   .tag { display: flex; align-items: center; gap: 6px; min-height: 34px; padding: 0 4px 0 8px; border-radius: 8px; }
   .tag.yes { background: #2a1420; } .tag.yes .name { color: #f9a8d4; }
@@ -91,12 +100,16 @@
 </header>
 <div class="layout">
   <nav aria-label="Filters" id="filters">
-    <fieldset class="spice">
-      <legend>Suggestiveness <span id="spiceval">0–100%</span></legend>
-      <label>From <input type="range" id="lo" min="0" max="100" step="5" value="0"></label>
-      <label>To <input type="range" id="hi" min="0" max="100" step="5" value="100"></label>
-      <p>0% safe · 33% suggestive · 67% questionable · 100% explicit</p>
-    </fieldset>
+    <section class="spice" aria-labelledby="spicehead">
+      <h2 id="spicehead">Suggestiveness</h2>
+      <p class="range" id="spiceval">0% – 100%</p>
+      <div class="dual">
+        <span class="track"></span><span class="fill" id="spicefill"></span>
+        <input type="range" id="lo" min="0" max="100" step="1" value="0" aria-label="Suggestiveness from">
+        <input type="range" id="hi" min="0" max="100" step="1" value="100" aria-label="Suggestiveness to">
+      </div>
+      <div id="presets"></div>
+    </section>
     <div id="taglist"></div>
   </nav>
   <main>
@@ -122,19 +135,24 @@ const order = {
 const RATING = {safe: "#14532d", suggestive: "#3b2a12", questionable: "#4c1d1d", explicit: "#5b1230"};
 
 // The filter list is built once; render() only updates counts and states, so open groups stay open
-$("taglist").innerHTML = D.groups.map(([g, tags], k) => `<details ${k < 3 ? "open" : ""}><summary>${esc(g)}</summary>${tags.map(t =>
+$("taglist").innerHTML = D.groups.filter(([g]) => g !== "Rating").map(([g, tags], k) => `<details ${k < 3 ? "open" : ""}><summary>${esc(g)}</summary>${tags.map(t =>
   `<div class="tag" data-t="${esc(t)}"><span class="name">${esc(t)}</span><span class="n"></span>` +
   `<button class="plus" aria-label="Must have ${esc(t)}" aria-pressed="false">+</button>` +
   `<button class="minus" aria-label="Exclude ${esc(t)}" aria-pressed="false">−</button></div>`).join("")}</details>`).join("");
 const rows = [...document.querySelectorAll(".tag")];
 
 const spice = it => (it.x ?? 0) / 3 * 100;  // x: the tagger's rating averaged by confidence, 0 safe ... 3 explicit
+const BANDS = [["Safe", 0, 16], ["Suggestive", 17, 49], ["Questionable", 50, 83], ["Explicit", 84, 100]];  // split halfway between levels
 
 function render() {
   const lo = +$("lo").value, hi = +$("hi").value, spiced = lo > 0 || hi < 100;
-  $("spiceval").textContent = `${lo}–${hi}%`;
-  shown = D.items.filter(it => spice(it) >= lo && spice(it) <= hi && [...sel].every(([t, want]) => it.t.includes(t) === want))
-    .sort(order[$("sort").value]);
+  $("spiceval").textContent = `${lo}% – ${hi}%`;
+  $("spicefill").style.left = lo + "%";
+  $("spicefill").style.right = 100 - hi + "%";
+  const tagged = D.items.filter(it => [...sel].every(([t, want]) => it.t.includes(t) === want));
+  $("presets").innerHTML = BANDS.map(([name, a, b]) => `<button data-lo="${a}" data-hi="${b}" aria-pressed="${lo === a && hi === b}">` +
+    `${name} (${a}–${b}%)<span>${tagged.filter(it => Math.round(spice(it)) >= a && Math.round(spice(it)) <= b).length.toLocaleString()}</span></button>`).join("");
+  shown = tagged.filter(it => Math.round(spice(it)) >= lo && Math.round(spice(it)) <= hi).sort(order[$("sort").value]);
   const n = {};
   for (const it of shown) for (const t of it.t) n[t] = (n[t] || 0) + 1;
   for (const row of rows) {
@@ -200,6 +218,14 @@ $("find").oninput = () => {
 $("sort").onchange = render;
 $("lo").oninput = () => { if (+$("lo").value > +$("hi").value) $("hi").value = $("lo").value; render(); };  // handles can't cross
 $("hi").oninput = () => { if (+$("hi").value < +$("lo").value) $("lo").value = $("hi").value; render(); };
+$("presets").onclick = e => {
+  const b = e.target.closest("button");
+  if (!b) return;
+  const on = b.getAttribute("aria-pressed") === "true";  // clicking the active pick again resets it
+  $("lo").value = on ? 0 : b.dataset.lo;
+  $("hi").value = on ? 100 : b.dataset.hi;
+  render();
+};
 $("title").textContent = D.title || "@" + D.handle;
 document.title = (D.title || "@" + D.handle) + " · instatagger";
 $("all").hidden = !!D.all;  // the all-models page doesn't link to itself

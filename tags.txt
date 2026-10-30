@@ -37,6 +37,9 @@ arched back: arched_back
 crossed legs: crossed_legs
 bent over: bent_over
 
+[Expression]
+smile: smile
+
 [Framing]
 full body: full_body
 face close-up: close-up portrait

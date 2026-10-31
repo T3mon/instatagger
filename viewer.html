@@ -130,6 +130,7 @@
     </select></label>
     <a class="btn" id="all" href="../index.html">All models</a>
     <a class="btn" id="models" href="/models">Models</a>
+    <a class="btn" id="settings" href="/settings">Settings</a>
     <a class="btn main" id="add" href="/add" target="_blank">+ Add model</a>
   </div>
   <div class="chips" id="chips"></div>
@@ -460,7 +461,7 @@ $("title").textContent = D.title || "@" + D.handle;
 document.title = (D.title || "@" + D.handle) + " · instatagger";
 $("all").hidden = !!D.all;  // the all-models page doesn't link to itself
 $("home").href = D.all ? "index.html" : "../index.html";
-$("add").hidden = $("models").hidden = location.protocol === "file:";  // both need serve.py
+$("add").hidden = $("models").hidden = $("settings").hidden = location.protocol === "file:";  // they need serve.py
 render();
 </script>
 </body>

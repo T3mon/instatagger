@@ -19,6 +19,8 @@
   input, textarea { width: 100%; font: inherit; color: var(--text); background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; margin: 6px 0 10px; }
   textarea { font-family: ui-monospace, monospace; min-height: 110px; resize: vertical; }
   code { background: var(--panel); padding: 1px 5px; border-radius: 4px; }
+  h3 { margin: 14px 0 6px; font-size: 14px; }
+  table { border-collapse: collapse; } td { padding: 4px 12px 4px 0; vertical-align: top; } td:first-child { width: 45%; }
   .muted, .back { color: var(--muted); }
   .row { display: flex; gap: 8px; justify-content: flex-end; }
   .ok { color: #4ade80; } .bad { color: #ff9592; }
@@ -45,12 +47,14 @@
 
   <section aria-labelledby="skiphead">
     <h2 id="skiphead">Skipped photos</h2>
-    <p class="muted">Always skipped: photos with nobody in them, photos with people but no girl (men, crowds, stages),
-      and cartoons and memes without a girl. A lone man in a real photo is kept, because the tagger often reads women as men: delete those with the trash icon.
-      Add your own rules below: a photo with any of these tags is skipped too. One rule per line,
-      <code>name: booru_tag ... | cutoff</code>. The booru tags come from the tagger's list (with underscores), and the cutoff (default 0.35) is how sure it must be.</p>
+    <h3>Built in, always on</h3>
+    <table id="builtin"></table>
+    <p class="muted">A lone man in a real photo is kept, because the tagger often reads women in hoodies, suits or flexing as men: delete those with the trash icon.</p>
+    <h3>Your own rules</h3>
+    <p class="muted">A photo with any of these tags is skipped too. One rule per line, <code>name: booru_tag ... | cutoff</code>.
+      The booru tags come from the tagger's list (with underscores), and the cutoff (default 0.35) is how sure it must be.</p>
     <form id="skipform">
-      <label>Skip rules<textarea id="skip" spellcheck="false" placeholder="boys: 1boy multiple_boys | 0.5&#10;text slides: text_focus english_text"></textarea></label>
+      <label><span id="skipcount"></span><textarea id="skip" spellcheck="false" placeholder="For example:&#10;boys: 1boy multiple_boys | 0.5&#10;text slides: text_focus english_text"></textarea></label>
       <div class="row"><button id="saveskip">Save rules</button></div>
     </form>
     <p id="skipmsg" role="status"></p>
@@ -62,11 +66,14 @@
 const $ = id => document.getElementById(id);
 const api = (path, opts = {}) => fetch(path, {...opts, headers: {"X-Instatagger": "1", "Content-Type": "application/json"}})
   .then(async r => { const j = await r.json(); if (!r.ok) throw new Error(j.error); return j; });
+const esc = s => String(s).replace(/[&<>"]/g, c => `&#${c.charCodeAt(0)};`);
 const say = (id, text, ok) => { $(id).textContent = text; $(id).className = ok ? "ok" : "bad"; };
 
 function show(s) {
   $("session").textContent = s.session ? `A sessionid is saved (session.txt from ${s.session}).` : "No sessionid saved yet: add one to add models.";
   $("skip").value = s.skip.join("\n");
+  $("skipcount").textContent = s.skip.length ? `${s.skip.length} rules` : "None yet";
+  $("builtin").innerHTML = s.built_in.map(([what, how]) => `<tr><td>${esc(what)}</td><td><code>${esc(how)}</code></td></tr>`).join("");
 }
 
 async function busy(button, work) {  // each check is one Instagram request, so no double clicks

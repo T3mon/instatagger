@@ -95,7 +95,7 @@ def settings():
     session = HERE / "session.txt"  # only its date: the file holds your Instagram login
     return {"tagger": instatagger.MODEL, "cutoff": instatagger.THRESHOLD, "folder": str(HERE / "out"),
             "groups": [[g, len(t)] for g, t in instatagger.parse_tags((HERE / "tags.txt").read_text(encoding="utf-8")) if g.lower() != "skip"],
-            "skip": skip_section()[1],
+            "skip": skip_section()[1], "built_in": instatagger.BUILT_IN_SKIPS,
             "session": datetime.fromtimestamp(session.stat().st_mtime).date().isoformat() if session.exists() else None,
             "free": shutil.disk_usage(HERE).free}
 

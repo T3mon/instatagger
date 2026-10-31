@@ -231,6 +231,14 @@ def booru_columns():
         return {row["name"]: j for j, row in enumerate(csv.DictReader(f))}
 
 
+BUILT_IN_SKIPS = [  # what no_girl below skips, for the Settings page: keep the two in step
+    ("Nobody in it: food, scenery, objects", "no_humans ≥ 0.35"),
+    ("People but no girl, and no single subject: men, crowds, stages", "girl < 0.45 and solo < 0.5"),
+    ("A cartoon or meme without a girl", "girl < 0.45 and realistic < 0.05"),
+    ("(girl: the highest of these tags)", " ".join(GIRLS)),
+]
+
+
 def no_girl(wd):
     """Pre-screen: nobody in the photo, people but no girl and no single subject (men, crowds, stages),
     or no girl in a picture that isn't a photo (cartoons, memes: "realistic" under 0.05; night, neon and edited

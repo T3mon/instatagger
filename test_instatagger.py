@@ -130,7 +130,9 @@ wd[2, col["1boy"]], wd[2, col["solo"]] = 0.95, 0.95             # her in a suit,
 wd[3, col["1girl"]], wd[3, col["solo"]] = 0.99, 0.97             # her
 wd[4, col["1boy"]], wd[4, col["solo"]], wd[4, col["realistic"]] = 0.95, 0.95, 0.01  # a cartoon meme
 wd[5, col["1girl"]], wd[5, col["solo"]], wd[5, col["realistic"]] = 0.9, 0.9, 0.01   # her at night, in neon
-assert instatagger.no_girl(wd).tolist() == [True, True, False, False, True, False]
+assert instatagger.no_girl(wd, instatagger.SKIPS).tolist() == [True, True, False, False, True, False]
+less = {**instatagger.SKIPS, "cartoon": {**instatagger.SKIPS["cartoon"], "on": False}, "nobody": {"on": True, "no_humans": 0.95}}
+assert instatagger.no_girl(wd, less).tolist() == [True, True, False, False, False, False]  # the food photo has no girl either
 
 # build_pages: one all-models page from each profile's data.json, with a Model row
 with tempfile.TemporaryDirectory() as d:
@@ -211,13 +213,7 @@ with tempfile.TemporaryDirectory() as d:
     assert [it["l"] for it in m["best"]] == [300] * 4 and m["files"] == 2, m
     assert got["settings"]["groups"] == [["Body", 1]] and got["settings"]["session"] is None, got["settings"]
     assert call("POST", "/api/delete", {"u": "nobody"})[0] == 404
-    # Settings: skip rules are checked against the tagger's list and written into tags.txt; the sessionid is checked first (stubbed)
-    assert call("POST", "/api/settings", {"skip": "boys: 1boyz"})[0] == 400
-    assert call("POST", "/api/settings", {"skip": "boys 1boy"})[0] == 400
-    code, got = call("POST", "/api/settings", {"skip": "boys: 1boy multiple_boys | 0.5\n\n"})
-    assert code == 200 and got["skip"] == ["boys: 1boy multiple_boys | 0.5"] and got["groups"] == [["Body", 1]], got
-    assert instatagger.parse_tags((Path(d) / "tags.txt").read_text())[1] == ("Skip", [("boys", ["1boy", "multiple_boys"], 0.5)])
-    assert call("POST", "/api/settings", {"skip": ""})[1]["skip"] == [] and call("GET", "/api/settings")[1]["groups"] == [["Body", 1]]
+    # Settings: the sessionid is checked with Instagram (stubbed) before it's saved
     serve.check_login = lambda session=None: "me" if session and session.startswith("12345%3A") else None
     assert call("POST", "/api/settings", {"session": "short"})[0] == 400
     assert call("POST", "/api/settings", {"session": "99999%3Aabcdefghijklmnopqrstuvwxyz"})[0] == 400 and not (Path(d) / "session.txt").exists()
@@ -236,6 +232,28 @@ with tempfile.TemporaryDirectory() as d:
         assert np.load(folder / "wd.npy")[:, 0].tolist() == list(range(1, 30)) and len(json.loads((folder / "items.json").read_text())) == 29
         assert np.load(folder / "feat.npy")[:, 0].tolist() == list(range(1, 30))  # features shrink with them
         assert len(json.loads((folder / "data.json").read_text())["items"]) == 29
+    # skip rules: the preview counts what saving would delete; saving checks them, writes them and deletes those photos as skipped
+    wd = np.load(folder / "wd.npy")
+    wd[:, col["1girl"]], wd[:, col["solo"]], wd[:, col["realistic"]] = 0.9, 0.9, 0.8
+    wd[:3, col["no_humans"]] = 0.6  # three photos of nobody
+    np.save(folder / "wd.npy", wd)
+    off = {k: {**r, "on": False} for k, r in instatagger.SKIPS.items()}
+    assert call("POST", "/api/skip/preview", {"rules": off})[1] == {"models": [{"handle": "a", "photos": 29, "drop": 0, "sample": []}]}
+    assert call("POST", "/api/skip/preview", {"rules": instatagger.SKIPS})[1]["models"][0]["drop"] == 3
+    assert call("POST", "/api/skip/preview", {"rules": {**off, "nobody": {"on": True, "no_humans": 0.7}}})[1]["models"][0]["drop"] == 0
+    assert call("POST", "/api/skip/preview", {"rules": {**off, "nobody": {"on": True, "no_humans": 2}}})[0] == 400  # cut-offs are 0-1
+    assert call("POST", "/api/skip/preview", {"rules": {**off, "nobody": {"on": "yes", "no_humans": 0.5}}})[0] == 400
+    assert call("POST", "/api/skip/preview", {"rules": off, "custom": "boys: 1boyz"})[0] == 400  # not a tagger tag
+    assert call("POST", "/api/skip/preview", {"rules": off, "custom": "boys 1boy"})[0] == 400
+    assert call("POST", "/api/skip/preview", {"rules": off, "custom": "her: 1girl | 0.95"})[1]["models"][0]["drop"] == 0
+    code, got = call("POST", "/api/skip", {"rules": {**off, "nobody": {"on": True, "no_humans": 0.5}}, "custom": "boys: 1boy multiple_boys | 0.5\n\n"})
+    assert code == 200 and got["deleted"] == 3 and got["skip"] == ["boys: 1boy multiple_boys | 0.5"], got
+    assert got["rules"]["nobody"] == {"on": True, "no_humans": 0.5} and got["groups"] == [["Body", 1]], got
+    assert instatagger.skip_rules() == got["rules"] and not instatagger.skip_rules()["cartoon"]["on"]  # read back from settings.json
+    assert instatagger.parse_tags((Path(d) / "tags.txt").read_text())[1] == ("Skip", [("boys", ["1boy", "multiple_boys"], 0.5)])
+    assert len(json.loads((folder / "skipped.json").read_text())) == 3 and json.loads((folder / "data.json").read_text())["skipped"] == 3
+    assert len(np.load(folder / "wd.npy")) == len(json.loads((folder / "items.json").read_text())) == 26
+    assert call("POST", "/api/skip", {"rules": off, "custom": ""})[1]["skip"] == []
     serve.start("b", [sys.executable, "-c", "import time; time.sleep(30)"])
     assert call("POST", "/api/delete", {"u": "a"})[0] == 409 and folder.exists()  # not while a run is going
     assert call("POST", "/api/delete", {"u": "a", "years": [2027, 2030]}) == (200, {"deleted": 0})  # photos of another model are fine

@@ -6,24 +6,51 @@
 <title>Settings · instatagger</title>
 <link rel="icon" href="/favicon.ico">
 <style>
-  :root { color-scheme: dark; --bg: #0b0b0c; --panel: #1c1c1f; --line: #2e2e33; --text: #f4f4f5; --muted: #a1a1aa; --accent: #c13584; }
+  :root { color-scheme: dark; --bg: #0b0b0c; --panel: #1c1c1f; --card: #131315; --line: #2e2e33; --text: #f4f4f5; --muted: #a1a1aa;
+    --accent: #c13584; --red: #d9434c; --warn: #fbbf72; }
   * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.4 system-ui, sans-serif; }
-  main { max-width: 640px; margin: 0 auto; padding: 24px 16px; }
-  h1 { margin: 0 0 16px; font-size: 20px; } h2 { margin: 0 0 8px; font-size: 16px; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 system-ui, sans-serif; }
+  main { max-width: 680px; margin: 0 auto; padding: 24px 16px 48px; }
+  h1 { margin: 0 0 16px; font-size: 20px; } h2 { margin: 0 0 8px; font-size: 16px; } h3 { margin: 20px 0 4px; font-size: 14px; }
+  p { margin: 6px 0; }
   a { color: var(--text); }
-  section { border-top: 1px solid var(--line); padding: 16px 0; }
+  section { border-top: 1px solid var(--line); padding: 18px 0; }
   button { font: inherit; color: #fff; background: var(--accent); border: 1px solid var(--accent); border-radius: 999px; padding: 6px 16px; cursor: pointer; }
   button.plain { color: var(--text); background: var(--panel); border-color: var(--line); }
-  button:disabled { opacity: .5; cursor: default; }
-  input, textarea { width: 100%; font: inherit; color: var(--text); background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; margin: 6px 0 10px; }
-  textarea { font-family: ui-monospace, monospace; min-height: 110px; resize: vertical; }
-  code { background: var(--panel); padding: 1px 5px; border-radius: 4px; }
-  h3 { margin: 14px 0 6px; font-size: 14px; }
-  table { border-collapse: collapse; } td { padding: 4px 12px 4px 0; vertical-align: top; } td:first-child { width: 45%; }
+  button.danger { background: var(--red); border-color: var(--red); }
+  button.link { color: var(--muted); background: none; border: 0; padding: 0; text-decoration: underline; }
+  button:disabled { opacity: .45; cursor: default; }
+  input, textarea { font: inherit; color: var(--text); background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+  #sid, textarea { width: 100%; margin: 6px 0 10px; }
+  textarea { font-family: ui-monospace, monospace; font-size: 13px; min-height: 96px; resize: vertical; }
+  code { font-family: ui-monospace, monospace; font-size: 12.5px; background: var(--panel); padding: 1px 5px; border-radius: 4px; }
   .muted, .back { color: var(--muted); }
-  .row { display: flex; gap: 8px; justify-content: flex-end; }
+  .small { font-size: 12.5px; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; align-items: center; }
   .ok { color: #4ade80; } .bad { color: #ff9592; }
+  .rule { border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; margin: 10px 0; background: var(--card); }
+  .rule .head { display: flex; align-items: center; gap: 10px; font-weight: 600; cursor: pointer; }
+  .rule p { margin: 4px 0 10px 46px; }
+  .cond { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin-left: 46px; }
+  .cond input { width: 72px; padding: 4px 8px; text-align: right; }
+  .cond input.changed { border-color: var(--accent); }
+  .cond small { color: var(--muted); }
+  .rule.off p, .rule.off .cond { opacity: .4; }
+  .toggle { appearance: none; flex: none; width: 36px; height: 20px; margin: 0; border-radius: 999px; background: var(--line); position: relative; cursor: pointer; transition: background .15s; }
+  .toggle::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: left .15s; }
+  .toggle:checked { background: var(--accent); }
+  .toggle:checked::after { left: 18px; }
+  #impact { border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; margin: 16px 0 8px; background: var(--panel); min-height: 46px; }
+  #impact.del { border-color: #6b2c31; background: #1d1214; }
+  #impact ul { margin: 6px 0 0; padding-left: 18px; }
+  .thumbs { display: grid; grid-template-columns: repeat(auto-fill, minmax(60px, 1fr)); gap: 4px; margin-top: 10px; }
+  .thumbs img { width: 100%; aspect-ratio: 4 / 5; object-fit: cover; border-radius: 4px; display: block; background: var(--line); }
+  .warn { color: var(--warn); font-size: 12.5px; }
+  .spin { display: inline-block; width: 14px; height: 14px; border: 2px solid var(--line); border-top-color: var(--accent); border-radius: 50%;
+    animation: spin .8s linear infinite; vertical-align: -2px; margin-right: 6px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .spin { animation-duration: 3s; } .toggle, .toggle::after { transition: none; } }
+  @media (max-width: 480px) { .rule p, .cond { margin-left: 0; } }
   :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 </style>
 </head>
@@ -47,19 +74,23 @@
 
   <section aria-labelledby="skiphead">
     <h2 id="skiphead">Skipped photos</h2>
-    <h3>Built in, always on</h3>
-    <table id="builtin"></table>
-    <p class="muted">A lone man in a real photo is kept, because the tagger often reads women in hoodies, suits or flexing as men: delete those with the trash icon.</p>
-    <h3>Your own rules</h3>
-    <p class="muted">A photo with any of these tags is skipped too. One rule per line, <code>name: booru_tag ... | cutoff</code>.
-      The booru tags come from the tagger's list (with underscores), and the cutoff (default 0.35) is how sure it must be.</p>
-    <form id="skipform">
-      <label><span id="skipcount"></span><textarea id="skip" spellcheck="false" placeholder="For example:&#10;boys: 1boy multiple_boys | 0.5&#10;text slides: text_focus english_text"></textarea></label>
-      <div class="row"><button id="saveskip">Save rules</button></div>
+    <p class="muted">The tagger gives every photo a score from 0 (surely not) to 1 (surely) for each of its thousands of tags.
+      These rules use the scores to throw out photos that aren't of a girl before they reach your library. By default all three are on.</p>
+    <form id="skipform" novalidate>
+      <div id="rules"></div>
+      <div class="row"><span class="muted small" style="margin-right:auto"><code>girl</code> is the photo's highest score for
+        <span id="girls"></span>.</span><button type="button" class="link" id="reset">Reset to defaults</button></div>
+
+      <h3>Your own rules <span id="skipcount" class="muted small"></span></h3>
+      <p class="muted small">A photo with any of these tags is skipped too. One rule per line: <code>name: booru_tag ... | cutoff</code>.
+        The tags come from the tagger's list, with underscores. The cutoff (0.35 if left out) is how sure the tagger must be.</p>
+      <textarea id="skip" spellcheck="false" aria-label="Your own skip rules" placeholder="For example:&#10;boys: 1boy multiple_boys | 0.5&#10;text slides: text_focus english_text"></textarea>
+
+      <div id="impact" aria-live="polite"></div>
+      <p class="warn">⚠ Saving applies the rules to every model right away: photos they catch are deleted for good and never downloaded again.
+        Loosening a rule doesn't bring back photos it already skipped.</p>
+      <div class="row"><span id="skipmsg" role="status"></span><button id="saveskip" disabled>Save</button></div>
     </form>
-    <p id="skipmsg" role="status"></p>
-    <p class="muted">Rules apply to photos added from now on. For a model you already have, run <code>python instatagger.py &lt;handle&gt; --retag</code>.
-      Skipped photos are deleted and never downloaded again.</p>
   </section>
 </main>
 <script>
@@ -68,19 +99,120 @@ const api = (path, opts = {}) => fetch(path, {...opts, headers: {"X-Instatagger"
   .then(async r => { const j = await r.json(); if (!r.ok) throw new Error(j.error); return j; });
 const esc = s => String(s).replace(/[&<>"]/g, c => `&#${c.charCodeAt(0)};`);
 const say = (id, text, ok) => { $(id).textContent = text; $(id).className = ok ? "ok" : "bad"; };
+const num = n => n.toLocaleString();
 
-function show(s) {
+// The built-in rules: key, name, what it catches, its conditions as [score, sign]. Their numbers come from the server.
+const RULES = [
+  ["nobody", "Nobody in it", "Food, scenery, objects and screenshots with no people.", [["no_humans", "≥"]]],
+  ["no_girl", "People, but no girl", "Men, crowds and stages. A lone “man” in a photo is kept on purpose: the tagger often reads women " +
+    "in hoodies, suits or flexing as men, so delete real men with the trash icon.", [["girl", "<"], ["solo", "<"]]],
+  ["cartoon", "Cartoons and memes", "Drawings and meme pictures with no girl in them. Night, neon and edited photos of her score as " +
+    "unrealistic too, but they have a girl in them, so they stay.", [["girl", "<"], ["realistic", "<"]]],
+];
+let S = null, saved = "", total = 0, timer, seq = 0;  // S: the settings as last loaded; saved: the skip form as last saved
+
+function showLogin(s) {
   $("session").textContent = s.session ? `A sessionid is saved (session.txt from ${s.session}).` : "No sessionid saved yet: add one to add models.";
-  $("skip").value = s.skip.join("\n");
-  $("skipcount").textContent = s.skip.length ? `${s.skip.length} rules` : "None yet";
-  $("builtin").innerHTML = s.built_in.map(([what, how]) => `<tr><td>${esc(what)}</td><td><code>${esc(how)}</code></td></tr>`).join("");
 }
+
+function showSkips(s, rules = s.rules) {
+  $("girls").innerHTML = s.girls.map(g => `<code>${esc(g)}</code>`).join(" ");
+  $("rules").innerHTML = RULES.map(([k, name, what, conds]) => `<div class="rule" role="group" aria-label="${name}" data-k="${k}">
+    <label class="head"><input type="checkbox" class="toggle" role="switch" data-f="on" ${rules[k].on ? "checked" : ""}>${name}</label>
+    <p class="muted">${esc(what)}</p>
+    <div class="cond">Skipped when ${conds.map(([f, sign]) => `<label><code>${f}</code> ${sign}
+      <input type="number" min="0" max="1" step="0.05" inputmode="decimal" data-f="${f}" value="${rules[k][f]}" aria-label="${f} cut-off"></label>`)
+      .join(" and ")}<small></small></div></div>`).join("");
+  marks();
+}
+
+function form() {  // what the skip section says now
+  const rules = {};
+  for (const r of document.querySelectorAll(".rule")) {
+    rules[r.dataset.k] = {};
+    for (const i of r.querySelectorAll("[data-f]")) rules[r.dataset.k][i.dataset.f] = i.type === "checkbox" ? i.checked : +i.value;
+  }
+  return {rules, custom: $("skip").value.split("\n").map(l => l.trim()).filter(Boolean).join("\n")};
+}
+
+function marks() {  // switched-off rules fade; changed cut-offs get a border and their default
+  for (const r of document.querySelectorAll(".rule")) {
+    const k = r.dataset.k, on = r.querySelector(".toggle").checked, nums = [...r.querySelectorAll("input[type=number]")];
+    r.classList.toggle("off", !on);
+    nums.forEach(i => { i.disabled = !on; i.classList.toggle("changed", +i.value !== S.defaults[k][i.dataset.f]); });
+    r.querySelector("small").textContent = nums.some(i => i.classList.contains("changed")) ?
+      `default ${nums.map(i => S.defaults[k][i.dataset.f]).join(" and ")}` : "";
+  }
+  const n = form().custom.split("\n").filter(Boolean).length;
+  $("skipcount").textContent = n ? `${n} rule${n > 1 ? "s" : ""}` : "none yet";
+}
+
+function button() {  // the save button says what saving costs
+  const dirty = JSON.stringify(form()) !== saved;
+  $("saveskip").disabled = !dirty && !total;
+  $("saveskip").className = total ? "danger" : "";
+  $("saveskip").textContent = total ? `Save and delete ${num(total)} photo${total > 1 ? "s" : ""}` : dirty ? "Save" : "Saved";
+}
+
+async function preview() {  // what saving these rules would delete now, with some of the photos
+  marks();
+  const mine = ++seq, bad = [...document.querySelectorAll(".cond input")].some(i => !i.disabled && (i.value === "" || +i.value < 0 || +i.value > 1));
+  total = 0;
+  if (bad) {
+    $("impact").className = ""; $("impact").innerHTML = `<span class="bad">Cut-offs are scores from 0 to 1.</span>`;
+    return $("saveskip").disabled = true;
+  }
+  $("impact").className = ""; $("impact").innerHTML = `<span class="spin"></span><span class="muted">Checking your library...</span>`;
+  let r;
+  try { r = await api("/api/skip/preview", {method: "POST", body: JSON.stringify(form())}); }
+  catch (err) {
+    if (mine !== seq) return;
+    $("impact").innerHTML = `<span class="bad">${esc(err.message)}</span>`;
+    return $("saveskip").disabled = true;
+  }
+  if (mine !== seq) return;  // a newer change is being checked
+  const hit = r.models.filter(m => m.drop);
+  total = hit.reduce((a, m) => a + m.drop, 0);
+  if (!total) {
+    $("impact").innerHTML = JSON.stringify(form()) === saved ? `<span class="muted">Your library already matches these rules.</span>` :
+      `<b>Nothing in your library is deleted.</b> <span class="muted">Photos added from now on are checked with these rules.</span>`;
+  } else {
+    const shown = [], big = hit.some(m => m.drop / m.photos > 0.1);
+    for (let j = 0; j < 12; j++) for (const m of hit) if (m.sample[j] && shown.length < 24) shown.push([m.handle, m.sample[j]]);  // a few from each model
+    $("impact").className = "del";
+    $("impact").innerHTML = `<b>Saving deletes ${num(total)} photo${total > 1 ? "s" : ""}</b> from ${hit.length} model${hit.length > 1 ? "s" : ""}:
+      <ul>${hit.map(m => `<li>@${esc(m.handle)}: ${num(m.drop)} of ${num(m.photos)} (${(m.drop / m.photos * 100).toFixed(1)}%)</li>`).join("")}</ul>
+      ${big ? `<p class="warn">That's over a tenth of a model: look through the photos below before you save.</p>` : ""}
+      <div class="thumbs">${shown.map(([h, f]) => `<img src="/${encodeURIComponent(h)}/thumbs/${encodeURIComponent(f)}" alt="" title="@${esc(h)}" loading="lazy">`).join("")}</div>
+      ${total > shown.length ? `<p class="muted small">Showing ${shown.length} of them.</p>` : ""}`;
+  }
+  button();
+}
+
+$("skipform").oninput = () => {
+  $("skipmsg").textContent = "";
+  marks();
+  ++seq; $("saveskip").disabled = true;  // until the new rules are checked, so saving never goes by an old count
+  clearTimeout(timer); timer = setTimeout(preview, 300);
+};
+$("reset").onclick = () => { showSkips(S, S.defaults); preview(); };
+$("skipform").onsubmit = async e => {
+  e.preventDefault();
+  if (total && !confirm(`Delete ${num(total)} photos for good? They're never downloaded again.`)) return;
+  $("saveskip").disabled = true;
+  $("saveskip").innerHTML = `<span class="spin"></span>${total ? `Deleting ${num(total)} photos...` : "Saving..."}`;
+  try {
+    S = await api("/api/skip", {method: "POST", body: JSON.stringify(form())});
+    showSkips(S); $("skip").value = S.skip.join("\n"); saved = JSON.stringify(form());
+    say("skipmsg", S.deleted ? `Saved. Deleted ${num(S.deleted)} photos.` : "Saved.", true);
+  } catch (err) { say("skipmsg", `Not saved: ${err.message}`); }
+  preview();
+};
 
 async function busy(button, work) {  // each check is one Instagram request, so no double clicks
   button.disabled = true;
   try { await work(); } finally { button.disabled = false; }
 }
-
 $("check").onclick = () => busy($("check"), async () => {
   say("loginmsg", "Asking Instagram...", true);
   try {
@@ -95,16 +227,15 @@ $("loginform").onsubmit = e => { e.preventDefault(); busy($("save"), async () =>
     const {user} = await api("/api/settings", {method: "POST", body: JSON.stringify({session: $("sid").value})});
     $("sid").value = "";
     say("loginmsg", `Saved: logged in as @${user}.`, true);
-    show(await api("/api/settings"));
+    showLogin(await api("/api/settings"));
   } catch (err) { say("loginmsg", `Not saved: ${err.message}`); }
 }); };
-$("skipform").onsubmit = e => { e.preventDefault(); busy($("saveskip"), async () => {
-  try {
-    show(await api("/api/settings", {method: "POST", body: JSON.stringify({skip: $("skip").value})}));
-    say("skipmsg", "Saved.", true);
-  } catch (err) { say("skipmsg", `Not saved: ${err.message}`); }
-}); };
-api("/api/settings").then(show).catch(err => say("loginmsg", `Couldn't load the settings: ${err.message}`));
+
+api("/api/settings").then(s => {
+  S = s;
+  showLogin(s); showSkips(s); $("skip").value = s.skip.join("\n"); saved = JSON.stringify(form());
+  preview();
+}).catch(err => say("loginmsg", `Couldn't load the settings: ${err.message}`));
 </script>
 </body>
 </html>

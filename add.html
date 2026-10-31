@@ -170,8 +170,9 @@ $("start").onclick = async () => {
   } catch (err) { $("msg").textContent = err.message; }
 };
 api("/api/settings").then(s => {
-  const names = s.skip.map(r => r.split(":")[0].trim());
-  $("skips").innerHTML = `Skipped and deleted: photos without a girl${names.length ? `, and photos tagged ${esc(names.join(", "))}` : ""}. ` +
+  const what = [s.rules.nobody.on && "photos with nobody in them", s.rules.no_girl.on && "photos without a girl",
+    s.rules.cartoon.on && "cartoons and memes", s.skip.length && `photos tagged ${s.skip.map(r => r.split(":")[0].trim()).join(", ")}`].filter(Boolean);
+  $("skips").innerHTML = (what.length ? `Skipped and deleted: ${esc(what.join(", "))}. ` : "Nothing is skipped: every photo is kept. ") +
     `<a href="/settings">Change in Settings</a>`;
 }).catch(() => {});
 $("who").value = new URLSearchParams(location.search).get("u") || "";  // "Add new posts" on the Models page

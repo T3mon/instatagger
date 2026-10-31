@@ -95,7 +95,7 @@ def settings():
     session = HERE / "session.txt"  # only its date: the file holds your Instagram login
     return {"tagger": instatagger.MODEL, "cutoff": instatagger.THRESHOLD, "folder": str(HERE / "out"),
             "groups": [[g, len(t)] for g, t in instatagger.parse_tags((HERE / "tags.txt").read_text(encoding="utf-8")) if g.lower() != "skip"],
-            "skip": skip_section()[1], "built_in": instatagger.BUILT_IN_SKIPS,
+            "skip": skip_section()[1], "rules": instatagger.skip_rules(), "defaults": instatagger.SKIPS, "girls": instatagger.GIRLS,
             "session": datetime.fromtimestamp(session.stat().st_mtime).date().isoformat() if session.exists() else None,
             "free": shutil.disk_usage(HERE).free}
 
@@ -110,24 +110,65 @@ def skip_section():
     return lines[:start + 1], [l.strip() for l in lines[start + 1:end] if l.strip() and not l.strip().startswith("#")], lines[end:]
 
 
-def save_skip(text):
-    """Check the Skip rules against the tagger's tag list and write them into tags.txt. Returns an error or None."""
+def parse_skip(text):
+    """Your own skip rules from the page, checked against the tagger's tag list: (lines for tags.txt, parsed rules).
+    Raises ValueError saying what's wrong."""
     rules = [l.strip() for l in str(text).splitlines() if l.strip()]
     if any(l.startswith(("[", "#")) or ":" not in l for l in rules):
-        return "Write one rule per line: name: booru_tag ... | cutoff, e.g. boys: 1boy multiple_boys | 0.5"
-    cols = instatagger.booru_columns()
+        raise ValueError("Write one rule per line: name: booru_tag ... | cutoff, e.g. boys: 1boy multiple_boys | 0.5")
     try:
         parsed = instatagger.parse_tags("\n".join(["[Skip]"] + rules))[0][1] if rules else []
     except ValueError:
-        return "The cutoff after | must be a number, e.g. 0.5"
+        raise ValueError("The cutoff after | must be a number, e.g. 0.5") from None
+    cols = instatagger.booru_columns()
     unknown = sorted({b for _, booru, _ in parsed for b in booru if b not in cols})
-    if unknown or any(not name or not booru for name, booru, _ in parsed):
-        return f"Not in the tagger's tag list: {', '.join(unknown)}. Its tags use underscores, like multiple_boys" if unknown \
-            else "Each rule needs a name and at least one booru tag"
+    if unknown:
+        raise ValueError(f"Not in the tagger's tag list: {', '.join(unknown)}. Its tags use underscores, like multiple_boys")
+    if any(not name or not booru for name, booru, _ in parsed):
+        raise ValueError("Each rule needs a name and at least one booru tag")
     if any(not 0 < cutoff <= 1 for _, _, cutoff in parsed):
-        return "The cutoff must be between 0 and 1"
+        raise ValueError("The cutoff must be between 0 and 1")
+    return rules, parsed
+
+
+def check_rules(rules):
+    """The built-in skip rules sent by the page: every rule and field of instatagger.SKIPS, on/off and cut-offs 0-1."""
+    if not (isinstance(rules, dict) and all(isinstance(rules.get(k), dict) and all(
+            isinstance(rules[k].get(f), bool) if f == "on" else type(rules[k].get(f)) in (int, float) and 0 <= rules[k][f] <= 1
+            for f in rule) for k, rule in instatagger.SKIPS.items())):
+        raise ValueError("Each built-in rule needs on or off, and cut-offs from 0 to 1")
+    return {k: {f: rules[k][f] for f in rule} for k, rule in instatagger.SKIPS.items()}
+
+
+def skip_preview(rules, custom):
+    """What these skip rules catch in each model's library now: [(her folder, her photos, file names caught)]."""
+    found = []
+    for f in sorted((HERE / "out").glob("*/items.json")):
+        if busy() and f.parent.name == run["handle"]:
+            continue  # her files are being rewritten
+        items = json.loads(f.read_text(encoding="utf-8"))
+        wd = np.load(f.parent / "wd.npy") if (f.parent / "wd.npy").exists() else None
+        if wd is None or len(wd) != len(items):
+            continue  # no saved scores to check
+        drop = instatagger.no_girl(wd, rules)
+        if custom:
+            drop |= np.array([bool(t) for t in instatagger.tag(wd, [("Skip", custom)])], bool)
+        found.append((f.parent, len(items), [it["f"] for it, d in zip(items, drop) if d]))
+    return found
+
+
+def save_skips(rules, lines, custom):
+    """Save the skip rules (built-in ones in settings.json, yours in tags.txt) and delete the photos they catch now.
+    Returns how many photos were deleted."""
+    path = HERE / "settings.json"
+    saved = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+    path.write_text(json.dumps({**saved, "skip": rules}, indent=1), encoding="utf-8")
     before, _, after = skip_section()
-    (HERE / "tags.txt").write_text("\n".join(before + rules + ([""] if after else []) + after) + "\n", encoding="utf-8")
+    (HERE / "tags.txt").write_text("\n".join(before + lines + ([""] if after else []) + after) + "\n", encoding="utf-8")
+    deleted = sum(instatagger.remove_photos(folder, set(files), "skipped") for folder, _, files in skip_preview(rules, custom) if files)
+    if deleted:
+        instatagger.build_pages()
+    return deleted
 
 
 def check_login(session=None):
@@ -228,13 +269,23 @@ class Handler(SimpleHTTPRequestHandler):
     def do_POST(self):
         if not self.allowed():
             return self.reply(403, {"error": "Forbidden"})
-        if self.path not in ("/api/add", "/api/delete", "/api/settings"):
+        if self.path not in ("/api/add", "/api/delete", "/api/settings", "/api/skip", "/api/skip/preview"):
             return self.reply(404, {"error": "Not found"})
         body = json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)) or "{}")
+        if self.path.startswith("/api/skip"):
+            try:
+                rules, (lines, custom) = check_rules(body.get("rules")), parse_skip(body.get("custom", ""))
+            except ValueError as e:
+                return self.reply(400, {"error": str(e)})
+            if self.path == "/api/skip/preview":
+                return self.reply(200, {"models": [{"handle": folder.name, "photos": n, "drop": len(files), "sample": files[:12]}
+                                                   for folder, n, files in skip_preview(rules, custom)]})
+            if busy():  # the run re-checks and rewrites her files at its end
+                return self.reply(409, {"error": f"Still adding @{run['handle']}: wait for it to finish"})
+            with files_lock:
+                deleted = save_skips(rules, lines, custom)
+            return self.reply(200, {**settings(), "deleted": deleted})
         if self.path == "/api/settings":
-            if "skip" in body:
-                error = save_skip(body["skip"])
-                return self.reply(400, {"error": error}) if error else self.reply(200, settings())
             # pasted as the cookie's value, or as "sessionid=...;"; decoded colons are encoded back like the browser shows them
             session = str(body.get("session", "")).strip().strip('"').removeprefix("sessionid=").rstrip(";").replace(":", "%3A")
             if not re.fullmatch(r"[\w%.-]{20,500}", session):

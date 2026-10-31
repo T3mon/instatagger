@@ -20,6 +20,7 @@ import threading
 import time
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
+from functools import cache
 from io import BytesIO
 from itertools import islice
 from pathlib import Path
@@ -226,27 +227,43 @@ def score_all(tagger, thumbs):
     return np.concatenate(wd), np.concatenate(feat)
 
 
+@cache  # each download call asks Hugging Face for a newer list: 0.2-0.4 s
 def booru_columns():
     with open(hf_hub_download(MODEL, "selected_tags.csv"), encoding="utf-8") as f:
         return {row["name"]: j for j, row in enumerate(csv.DictReader(f))}
 
 
-BUILT_IN_SKIPS = [  # what no_girl below skips, for the Settings page: keep the two in step
-    ("Nobody in it: food, scenery, objects", "no_humans ≥ 0.35"),
-    ("People but no girl, and no single subject: men, crowds, stages", "girl < 0.45 and solo < 0.5"),
-    ("A cartoon or meme without a girl", "girl < 0.45 and realistic < 0.05"),
-    ("(girl: the highest of these tags)", " ".join(GIRLS)),
-]
+# The built-in skip rules. The Settings page turns them off or changes the cut-offs, saved in settings.json.
+# "girl" is the highest of the GIRLS scores.
+SKIPS = {
+    "nobody": {"on": True, "no_humans": 0.35},                 # no_humans at least this: food, scenery, objects
+    "no_girl": {"on": True, "girl": 0.45, "solo": 0.5},        # both under: men, crowds, stages
+    "cartoon": {"on": True, "girl": 0.45, "realistic": 0.05},  # both under: cartoons, memes
+}
 
 
-def no_girl(wd):
-    """Pre-screen: nobody in the photo, people but no girl and no single subject (men, crowds, stages),
-    or no girl in a picture that isn't a photo (cartoons, memes: "realistic" under 0.05; night, neon and edited
-    photos of her score that low too, but with a girl in them).
+def skip_rules():
+    """The built-in skip rules, with your changes from the Settings page."""
+    path = HERE / "settings.json"
+    saved = json.loads(path.read_text(encoding="utf-8")).get("skip", {}) if path.exists() else {}
+    return {k: {f: saved.get(k, {}).get(f, v) for f, v in rule.items()} for k, rule in SKIPS.items()}
+
+
+def no_girl(wd, rules=None):
+    """Pre-screen with the built-in skip rules: nobody in the photo, people but no girl and no single subject
+    (men, crowds, stages), or no girl in a picture that isn't a photo (cartoons, memes score "realistic" under 0.05;
+    night, neon and edited photos of her score that low too, but with a girl in them).
     A lone figure the tagger calls male is kept: it takes women in suits, hoodies or flexing for men."""
-    col = booru_columns()
+    r, col = rules or skip_rules(), booru_columns()
     girl = wd[:, [col[t] for t in GIRLS]].max(axis=1)
-    return (wd[:, col["no_humans"]] >= 0.35) | ((girl < 0.45) & ((wd[:, col["solo"]] < 0.5) | (wd[:, col["realistic"]] < 0.05)))
+    drop = np.zeros(len(wd), bool)
+    if r["nobody"]["on"]:
+        drop |= wd[:, col["no_humans"]] >= r["nobody"]["no_humans"]
+    if r["no_girl"]["on"]:
+        drop |= (girl < r["no_girl"]["girl"]) & (wd[:, col["solo"]] < r["no_girl"]["solo"])
+    if r["cartoon"]["on"]:
+        drop |= (girl < r["cartoon"]["girl"]) & (wd[:, col["realistic"]] < r["cartoon"]["realistic"])
+    return drop
 
 
 def tag(wd, groups):
@@ -277,21 +294,22 @@ def saved_set(path):
     return set(json.loads(path.read_text(encoding="utf-8"))) if path.exists() else set()
 
 
-def remove_photos(folder, files):
-    """Delete photos from a model's library (preview, scores, entry). They're remembered in removed.json,
-    so a re-run never downloads them again. Returns how many were removed."""
+def remove_photos(folder, files, why="removed"):
+    """Delete photos from a model's library (preview, scores, entry). They're remembered in removed.json (your deletes)
+    or skipped.json (the skip rules), so a re-run never downloads them again. Returns how many were removed."""
     items = json.loads((folder / "items.json").read_text(encoding="utf-8"))
     keep = [k for k, it in enumerate(items) if it["f"] not in files]
     gone = [it["f"] for it in items if it["f"] in files]
     for f in gone:
         (folder / "thumbs" / f).unlink(missing_ok=True)
-    (folder / "removed.json").write_text(json.dumps(sorted(saved_set(folder / "removed.json") | set(gone))), encoding="utf-8")
+    (folder / f"{why}.json").write_text(json.dumps(sorted(saved_set(folder / f"{why}.json") | set(gone))), encoding="utf-8")
     for name in ["wd.npy", "feat.npy"]:  # one row per items.json entry, so they all shrink together
         if (folder / name).exists():
             np.save(folder / name, np.load(folder / name)[keep])
     (folder / "items.json").write_text(json.dumps([items[k] for k in keep]), encoding="utf-8")
     data = json.loads((folder / "data.json").read_text(encoding="utf-8"))
     data["items"] = [it for it in data["items"] if it["f"] not in files]
+    data["skipped"] = len(saved_set(folder / "skipped.json"))
     (folder / "data.json").write_text(json.dumps(data), encoding="utf-8")
     return len(gone)
 

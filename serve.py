@@ -1,6 +1,7 @@
 """Serve the pages with the Add model and Models pages:  python serve.py, then open http://localhost:8765"""
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -93,9 +94,45 @@ def model_stats(folder, cols):
 def settings():
     session = HERE / "session.txt"  # only its date: the file holds your Instagram login
     return {"tagger": instatagger.MODEL, "cutoff": instatagger.THRESHOLD, "folder": str(HERE / "out"),
-            "groups": [[g, len(t)] for g, t in instatagger.parse_tags((HERE / "tags.txt").read_text(encoding="utf-8")) if g != "Skip"],
+            "groups": [[g, len(t)] for g, t in instatagger.parse_tags((HERE / "tags.txt").read_text(encoding="utf-8")) if g.lower() != "skip"],
+            "skip": skip_section()[1],
             "session": datetime.fromtimestamp(session.stat().st_mtime).date().isoformat() if session.exists() else None,
             "free": shutil.disk_usage(HERE).free}
+
+
+def skip_section():
+    """tags.txt split around its [Skip] rules: (lines up to [Skip], the rules, the lines after)."""
+    lines = (HERE / "tags.txt").read_text(encoding="utf-8").splitlines()
+    start = next((k for k, l in enumerate(lines) if l.strip().lower() == "[skip]"), None)
+    if start is None:
+        return lines + ["", "[Skip]"], [], []
+    end = next((k for k in range(start + 1, len(lines)) if lines[k].strip().startswith("[")), len(lines))
+    return lines[:start + 1], [l.strip() for l in lines[start + 1:end] if l.strip() and not l.strip().startswith("#")], lines[end:]
+
+
+def save_skip(text):
+    """Check the Skip rules against the tagger's tag list and write them into tags.txt. Returns an error or None."""
+    rules = [l.strip() for l in str(text).splitlines() if l.strip()]
+    if any(l.startswith(("[", "#")) or ":" not in l for l in rules):
+        return "Write one rule per line: name: booru_tag ... | cutoff, e.g. boys: 1boy multiple_boys | 0.5"
+    cols = instatagger.booru_columns()
+    try:
+        parsed = instatagger.parse_tags("\n".join(["[Skip]"] + rules))[0][1] if rules else []
+    except ValueError:
+        return "The cutoff after | must be a number, e.g. 0.5"
+    unknown = sorted({b for _, booru, _ in parsed for b in booru if b not in cols})
+    if unknown or any(not name or not booru for name, booru, _ in parsed):
+        return f"Not in the tagger's tag list: {', '.join(unknown)}. Its tags use underscores, like multiple_boys" if unknown \
+            else "Each rule needs a name and at least one booru tag"
+    if any(not 0 < cutoff <= 1 for _, _, cutoff in parsed):
+        return "The cutoff must be between 0 and 1"
+    before, _, after = skip_section()
+    (HERE / "tags.txt").write_text("\n".join(before + rules + ([""] if after else []) + after) + "\n", encoding="utf-8")
+
+
+def check_login(session=None):
+    """Your Instagram username if the sessionid works (one Instagram request), else None."""
+    return instatagger.login(None, session=session).test_login()
 
 
 def rebuild_later():
@@ -149,7 +186,7 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_GET(self):
         url = urlparse(self.path)
-        pages = {"/add": "add.html", "/models": "models.html", "/favicon.ico": "favicon.ico"}  # separate pages, so a run never blocks browsing
+        pages = {"/add": "add.html", "/models": "models.html", "/settings": "settings.html", "/favicon.ico": "favicon.ico"}  # separate pages, so a run never blocks browsing
         if url.path in pages:
             body = (HERE / pages[url.path]).read_bytes()
             self.send_response(200)
@@ -170,6 +207,15 @@ class Handler(SimpleHTTPRequestHandler):
             cols = [instatagger.booru_columns()[r] for r in instatagger.RATINGS]
             return self.reply(200, {"models": [model_stats(f.parent, cols) for f in sorted((HERE / "out").glob("*/data.json"))],
                                     "settings": settings(), "running": run["handle"] if busy() else None})
+        if url.path == "/api/settings":
+            return self.reply(200, settings())
+        if url.path == "/api/login":
+            try:
+                return self.reply(200, {"user": check_login()})
+            except SystemExit as e:  # no session.txt
+                return self.reply(400, {"error": str(e)})
+            except instaloader.exceptions.InstaloaderException as e:
+                return self.reply(400, {"error": f"Instagram: {e}"})
         if url.path == "/api/profile":
             try:
                 return self.reply(200, profile(instatagger.handle_from(parse_qs(url.query).get("u", [""])[0])))
@@ -182,9 +228,25 @@ class Handler(SimpleHTTPRequestHandler):
     def do_POST(self):
         if not self.allowed():
             return self.reply(403, {"error": "Forbidden"})
-        if self.path not in ("/api/add", "/api/delete"):
+        if self.path not in ("/api/add", "/api/delete", "/api/settings"):
             return self.reply(404, {"error": "Not found"})
         body = json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)) or "{}")
+        if self.path == "/api/settings":
+            if "skip" in body:
+                error = save_skip(body["skip"])
+                return self.reply(400, {"error": error}) if error else self.reply(200, settings())
+            # pasted as the cookie's value, or as "sessionid=...;"; decoded colons are encoded back like the browser shows them
+            session = str(body.get("session", "")).strip().strip('"').removeprefix("sessionid=").rstrip(";").replace(":", "%3A")
+            if not re.fullmatch(r"[\w%.-]{20,500}", session):
+                return self.reply(400, {"error": "That doesn't look like a sessionid: copy the Value of the sessionid cookie"})
+            try:
+                user = check_login(session)
+            except instaloader.exceptions.InstaloaderException as e:
+                return self.reply(400, {"error": f"Instagram: {e}"})
+            if not user:
+                return self.reply(400, {"error": "Instagram didn't accept it: copy a fresh one while logged in to instagram.com"})
+            (HERE / "session.txt").write_text(session, encoding="utf-8")
+            return self.reply(200, {"user": user})
         try:
             handle = instatagger.handle_from(str(body.get("u", "")))
         except SystemExit as e:

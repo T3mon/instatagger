@@ -18,7 +18,7 @@
   #limit { width: 80px; margin: 0 4px; }
   #info table { border-collapse: collapse; margin: 12px 0; }
   #info td { padding: 3px 14px 3px 0; vertical-align: top; }
-  #info td:first-child, #eta, .back { color: var(--muted); }
+  #info td:first-child, #eta, .back, .muted { color: var(--muted); }
   #msg { color: #ff9592; }
   #run { border-top: 1px solid var(--line); margin-top: 16px; padding-top: 8px; }
   #runsteps progress { display: block; width: calc(100% - 20px); margin: 6px 0 0 20px; accent-color: var(--accent); }
@@ -32,7 +32,7 @@
 </head>
 <body>
 <main>
-  <p class="back"><a href="/">All models</a> · <a href="/models">Models</a></p>
+  <p class="back"><a href="/">All models</a> · <a href="/models">Models</a> · <a href="/settings">Settings</a></p>
   <h1>Add model</h1>
   <form id="lookup">
     <label>Instagram link or handle<input id="who" required autofocus autocomplete="off" placeholder="Paste a profile link: it's looked up as you paste"></label>
@@ -41,6 +41,7 @@
   <div id="go" hidden>
     <label><input type="checkbox" id="limited"> Only the newest<input type="number" id="limit" value="100" min="1" step="1">posts</label>
     <p id="eta"></p>
+    <p id="skips" class="muted"></p>
     <p id="msg" role="alert"></p>
     <div class="row"><button id="start">Add her</button></div>
   </div>
@@ -57,7 +58,9 @@ const api = (path, opts = {}) => fetch(path, {...opts, headers: {"X-Instatagger"
   .then(async r => { const j = await r.json(); if (!r.ok) throw new Error(j.error); return j; });
 const fmt = s => s < 90 ? `${Math.round(s)} s` : `${Math.round(s / 60)} min`;
 const handleOf = text => text.trim().split("instagram.com/").pop().split("/")[0].split("?")[0].replace(/^@/, "");
-const daysAgo = d => { const n = Math.round((Date.now() - Date.parse(d)) / 864e5); return n < 1 ? "today" : n === 1 ? "yesterday" : `${n} days ago`; };
+// an Instagram error that means the saved sessionid stopped working (or there is none)
+const loginHelp = msg => /session|login|401|403|checkpoint|unauthori/i.test(msg) ? ` <a href="/settings">Update your Instagram login in Settings</a>.` : "";
+const daysAgo =d => { const n = Math.round((Date.now() - Date.parse(d)) / 864e5); return n < 1 ? "today" : n === 1 ? "yesterday" : `${n} days ago`; };
 
 function eta() {  // measured on a 100-post run: ~50 s to find her and list the first 12 posts, then ~12 s per page of 33;
   // downloads keep up with the listing; the tagger loads in ~35 s meanwhile and tags ~15 photos/s; ~30 s to finish.
@@ -80,7 +83,7 @@ async function lookup() {
   $("info").textContent = `Looking up @${handle} on Instagram...`;
   let p;
   try { p = await api("/api/profile?u=" + encodeURIComponent(handle)); }
-  catch (err) { if (mine === seq) $("info").textContent = err.message; return; }
+  catch (err) { if (mine === seq) $("info").innerHTML = esc(err.message) + loginHelp(err.message); return; }
   if (mine !== seq) return;  // a newer look-up has started
   P = p;
   const row = (k, v) => `<tr><td>${k}</td><td>${v}</td></tr>`;
@@ -133,10 +136,10 @@ function showRun(s) {  // s.log: [seconds since start, line] from the run's outp
   }).join("");
   const end = s.log.map(([, l]) => l.match(/^(\d+) photos ->.*\| (\d+) without a girl/)).filter(Boolean).at(-1);
   const why = [...s.log].reverse().map(([, l]) => l).find(l => /Only|No photos|stopped|rror|Not an Instagram/.test(l)) || s.log.at(-1)?.[1] || "unknown error";
-  $("runhead").textContent = s.running ? `Adding @${s.handle}: ${fmt(s.elapsed)} so far.` +
+  $("runhead").innerHTML = esc(s.running ? `Adding @${s.handle}: ${fmt(s.elapsed)} so far.` +
       (log.some(([, l]) => /posts listed/.test(l)) ? "" : " Starting up and finding her on Instagram.")
-    : s.code === 0 && end ? `Done in ${fmt(s.elapsed)}: @${s.handle} now has ${(+end[1]).toLocaleString()} photos (${end[2]} without a girl skipped). She's on the All models page now.`
-    : `Adding @${s.handle} stopped: ${why.trim()}`;
+    : s.code === 0 && end ? `Done in ${fmt(s.elapsed)}: @${s.handle} now has ${(+end[1]).toLocaleString()} photos (${end[2]} skipped). She's on the All models page now.`
+    : `Adding @${s.handle} stopped: ${why.trim()}`) + (!s.running && !(s.code === 0 && end) ? loginHelp(why) : "");
 }
 
 async function poll() {
@@ -166,6 +169,11 @@ $("start").onclick = async () => {
     poll();
   } catch (err) { $("msg").textContent = err.message; }
 };
+api("/api/settings").then(s => {
+  const names = s.skip.map(r => r.split(":")[0].trim());
+  $("skips").innerHTML = `Skipped and deleted: photos without a girl${names.length ? `, and photos tagged ${esc(names.join(", "))}` : ""}. ` +
+    `<a href="/settings">Change in Settings</a>`;
+}).catch(() => {});
 $("who").value = new URLSearchParams(location.search).get("u") || "";  // "Add new posts" on the Models page
 if ($("who").value) lookup();
 poll();  // show a run that is already going

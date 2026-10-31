@@ -77,12 +77,13 @@ class Polite(instaloader.RateController):
         time.sleep(random.uniform(6, 12))  # one page of 12 posts per 6-12 s, so Instagram doesn't flag the account
 
 
-def login(rate_controller=Polite):
-    """Instaloader logged in as you, from the sessionid cookie in session.txt."""
+def login(rate_controller=Polite, session=None):
+    """Instaloader logged in as you, from the sessionid cookie in session.txt (or the one given, to check it)."""
     session_file = HERE / "session.txt"
-    session = session_file.read_text(encoding="utf-8").strip() if session_file.exists() else ""
+    if session is None:
+        session = session_file.read_text(encoding="utf-8").strip() if session_file.exists() else ""
     if not session:
-        sys.exit(f"Paste your Instagram sessionid cookie into {session_file}")
+        sys.exit(f"No Instagram login: add your sessionid on the Settings page, or paste it into {session_file}")
     L = instaloader.Instaloader(quiet=True, rate_controller=rate_controller)
     L.load_session("me", {"sessionid": session, "csrftoken": secrets.token_hex(16), "ds_user_id": session.split("%3A")[0]})
     return L

@@ -173,6 +173,8 @@ page.request("GET", "/add")
 assert b"Add model" in page.getresponse().read()
 page.request("GET", "/models")
 assert b"Your models" in page.getresponse().read()
+page.request("GET", "/settings")
+assert b"Skipped photos" in page.getresponse().read()
 page.request("GET", "/favicon.ico")
 assert page.getresponse().read()[:4] == b"\0\0\1\0"  # an .ico file
 assert call("POST", "/api/add", {"u": "../x"})[0] == 400
@@ -205,6 +207,18 @@ with tempfile.TemporaryDirectory() as d:
     assert [it["l"] for it in m["best"]] == [300] * 4 and m["files"] == 2, m
     assert got["settings"]["groups"] == [["Body", 1]] and got["settings"]["session"] is None, got["settings"]
     assert call("POST", "/api/delete", {"u": "nobody"})[0] == 404
+    # Settings: skip rules are checked against the tagger's list and written into tags.txt; the sessionid is checked first (stubbed)
+    assert call("POST", "/api/settings", {"skip": "boys: 1boyz"})[0] == 400
+    assert call("POST", "/api/settings", {"skip": "boys 1boy"})[0] == 400
+    code, got = call("POST", "/api/settings", {"skip": "boys: 1boy multiple_boys | 0.5\n\n"})
+    assert code == 200 and got["skip"] == ["boys: 1boy multiple_boys | 0.5"] and got["groups"] == [["Body", 1]], got
+    assert instatagger.parse_tags((Path(d) / "tags.txt").read_text())[1] == ("Skip", [("boys", ["1boy", "multiple_boys"], 0.5)])
+    assert call("POST", "/api/settings", {"skip": ""})[1]["skip"] == [] and call("GET", "/api/settings")[1]["groups"] == [["Body", 1]]
+    serve.check_login = lambda session=None: "me" if session and session.startswith("12345%3A") else None
+    assert call("POST", "/api/settings", {"session": "short"})[0] == 400
+    assert call("POST", "/api/settings", {"session": "99999%3Aabcdefghijklmnopqrstuvwxyz"})[0] == 400 and not (Path(d) / "session.txt").exists()
+    assert call("POST", "/api/settings", {"session": "sessionid=12345:abcdefghijklmnopqrstuvwxyz;"}) == (200, {"user": "me"})
+    assert (Path(d) / "session.txt").read_text() == "12345%3Aabcdefghijklmnopqrstuvwxyz"
     # deleting photos: preview, entry and score row go together, and they're remembered so a re-run skips them
     (folder / "items.json").write_text(json.dumps([{k: v for k, v in it.items() if k != "t"} for it in items]))
     wd = np.zeros((30, len(instatagger.booru_columns())), np.float16)

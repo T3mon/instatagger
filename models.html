@@ -62,6 +62,7 @@
   <a class="brand" href="/">instatagger</a>
   <span class="title">Models</span>
   <a class="btn" href="/">All models</a>
+  <a class="btn" href="/settings">Settings</a>
   <a class="btn main" href="/add" target="_blank">+ Add model</a>
 </header>
 <div id="toast" role="status" hidden><span class="spin"></span><span id="toasttext"></span></div>
@@ -138,7 +139,8 @@ async function load() {
   const s = M.settings, tags = s.groups.reduce((a, [, n]) => a + n, 0);
   const row = (k, v) => `<tr><td>${k}</td><td>${v}</td></tr>`;
   $("settings").innerHTML =
-    row("Instagram login", s.session ? `session.txt from ${s.session}. If adding fails with a login error, paste a fresh sessionid there.` : "No session.txt: paste your sessionid into it to add models.") +
+    row("Instagram login", (s.session ? `session.txt from ${s.session}. If adding fails with a login error, ` : "None saved yet: to add models, ") + `<a href="/settings">add a fresh sessionid in Settings</a>.`) +
+    row("Skipped photos", `Photos without a girl` + (s.skip.length ? `, and ${s.skip.length} rules of yours` : "") + `. <a href="/settings">Change in Settings</a>`) +
     row("Tagger", `${esc(s.tagger)}, runs on your GPU`) +
     row("Default cutoff", `${Math.round(s.cutoff * 100)}%: a booru tag counts when the tagger is at least this sure`) +
     row("Tag list", `${tags} tags in ${s.groups.length} groups (${s.groups.map(([g, n]) => `${esc(g)} ${n}`).join(", ")}). Edit tags.txt, then run <code>python instatagger.py &lt;handle&gt; --retag</code> per model to apply.`) +

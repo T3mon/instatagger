@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Settings · instatagger</title>
+<link rel="icon" href="/favicon.ico">
+<style>
+  :root { color-scheme: dark; --bg: #0b0b0c; --panel: #1c1c1f; --line: #2e2e33; --text: #f4f4f5; --muted: #a1a1aa; --accent: #c13584; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.4 system-ui, sans-serif; }
+  main { max-width: 640px; margin: 0 auto; padding: 24px 16px; }
+  h1 { margin: 0 0 16px; font-size: 20px; } h2 { margin: 0 0 8px; font-size: 16px; }
+  a { color: var(--text); }
+  section { border-top: 1px solid var(--line); padding: 16px 0; }
+  button { font: inherit; color: #fff; background: var(--accent); border: 1px solid var(--accent); border-radius: 999px; padding: 6px 16px; cursor: pointer; }
+  button.plain { color: var(--text); background: var(--panel); border-color: var(--line); }
+  button:disabled { opacity: .5; cursor: default; }
+  input, textarea { width: 100%; font: inherit; color: var(--text); background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; margin: 6px 0 10px; }
+  textarea { font-family: ui-monospace, monospace; min-height: 110px; resize: vertical; }
+  code { background: var(--panel); padding: 1px 5px; border-radius: 4px; }
+  .muted, .back { color: var(--muted); }
+  .row { display: flex; gap: 8px; justify-content: flex-end; }
+  .ok { color: #4ade80; } .bad { color: #ff9592; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+</style>
+</head>
+<body>
+<main>
+  <p class="back"><a href="/">All models</a> · <a href="/models">Models</a> · <a href="/add">Add model</a></p>
+  <h1>Settings</h1>
+
+  <section aria-labelledby="loginhead">
+    <h2 id="loginhead">Instagram login</h2>
+    <p id="session" class="muted">Loading...</p>
+    <p class="muted">The app lists posts as you, with your browser's <code>sessionid</code> cookie. To get a fresh one: log in on instagram.com,
+      press F12, open Application → Cookies → https://www.instagram.com and copy the Value of <b>sessionid</b>.
+      It's saved in session.txt on this computer only and never shown here. Anyone with it is logged in as you.</p>
+    <form id="loginform">
+      <label>New sessionid<input id="sid" type="password" autocomplete="off" spellcheck="false" placeholder="Paste the cookie's value"></label>
+      <div class="row"><button type="button" class="plain" id="check">Check the saved one</button><button id="save">Check and save</button></div>
+    </form>
+    <p id="loginmsg" role="status"></p>
+  </section>
+
+  <section aria-labelledby="skiphead">
+    <h2 id="skiphead">Skipped photos</h2>
+    <p class="muted">Always skipped: photos with nobody in them, and photos with people but no girl (men, crowds, stages).
+      Add your own rules below: a photo with any of these tags is skipped too. One rule per line,
+      <code>name: booru_tag ... | cutoff</code>. The booru tags come from the tagger's list (with underscores), and the cutoff (default 0.35) is how sure it must be.</p>
+    <form id="skipform">
+      <label>Skip rules<textarea id="skip" spellcheck="false" placeholder="boys: 1boy multiple_boys | 0.5&#10;text slides: text_focus english_text"></textarea></label>
+      <div class="row"><button id="saveskip">Save rules</button></div>
+    </form>
+    <p id="skipmsg" role="status"></p>
+    <p class="muted">Rules apply to photos added from now on. For a model you already have, run <code>python instatagger.py &lt;handle&gt; --retag</code>.
+      Skipped photos are deleted and never downloaded again.</p>
+  </section>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+const api = (path, opts = {}) => fetch(path, {...opts, headers: {"X-Instatagger": "1", "Content-Type": "application/json"}})
+  .then(async r => { const j = await r.json(); if (!r.ok) throw new Error(j.error); return j; });
+const say = (id, text, ok) => { $(id).textContent = text; $(id).className = ok ? "ok" : "bad"; };
+
+function show(s) {
+  $("session").textContent = s.session ? `A sessionid is saved (session.txt from ${s.session}).` : "No sessionid saved yet: add one to add models.";
+  $("skip").value = s.skip.join("\n");
+}
+
+async function busy(button, work) {  // each check is one Instagram request, so no double clicks
+  button.disabled = true;
+  try { await work(); } finally { button.disabled = false; }
+}
+
+$("check").onclick = () => busy($("check"), async () => {
+  say("loginmsg", "Asking Instagram...", true);
+  try {
+    const {user} = await api("/api/login");
+    user ? say("loginmsg", `Works: logged in as @${user}.`, true) : say("loginmsg", "Instagram didn't accept the saved one: paste a fresh sessionid above.");
+  } catch (err) { say("loginmsg", err.message); }
+});
+$("loginform").onsubmit = e => { e.preventDefault(); busy($("save"), async () => {
+  if (!$("sid").value.trim()) return say("loginmsg", "Paste a sessionid first.");
+  say("loginmsg", "Checking it with Instagram...", true);
+  try {
+    const {user} = await api("/api/settings", {method: "POST", body: JSON.stringify({session: $("sid").value})});
+    $("sid").value = "";
+    say("loginmsg", `Saved: logged in as @${user}.`, true);
+    show(await api("/api/settings"));
+  } catch (err) { say("loginmsg", `Not saved: ${err.message}`); }
+}); };
+$("skipform").onsubmit = e => { e.preventDefault(); busy($("saveskip"), async () => {
+  try {
+    show(await api("/api/settings", {method: "POST", body: JSON.stringify({skip: $("skip").value})}));
+    say("skipmsg", "Saved.", true);
+  } catch (err) { say("skipmsg", `Not saved: ${err.message}`); }
+}); };
+api("/api/settings").then(show).catch(err => say("loginmsg", `Couldn't load the settings: ${err.message}`));
+</script>
+</body>
+</html>

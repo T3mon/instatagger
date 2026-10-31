@@ -11,7 +11,7 @@ Tags every photo on an Instagram profile and builds a local page to search them 
 
     pip install -r requirements.txt
 
-For a GPU, install torch with CUDA from pytorch.org first. Put your Instagram `sessionid` cookie value (browser DevTools → Application → Cookies) in `session.txt`. Keep it private: anyone with it is logged in as you.
+For a GPU, install torch with CUDA from pytorch.org first. Put your Instagram `sessionid` cookie value (browser DevTools → Application → Cookies) in `session.txt`, or paste it on the app's **Settings** page, which checks it with Instagram first. Keep it private: anyone with it is logged in as you.
 
 ## Use
 
@@ -20,6 +20,6 @@ For a GPU, install torch with CUDA from pytorch.org first. Put your Instagram `s
 
 Open `out/<handle>/index.html` in a browser, or `out/index.html` for every model on one page (filter by model, sort by likes or date). **More like this** on a photo sorts the grid by how alike other posts are, with your filters still on: by look (the tagger's image features: pose, framing, light, scene), by shared tags (outfit, setting), or both. The photo panel's **Look** section shows its colour palette, brightness, warmth and contrast, and the tagger's camera and light tags. Models tagged before image features were added get them with `--retag`.
 
-Or double-click `start.bat` (or run `python serve.py`) and open http://localhost:8765; it runs until you close its window. The pages then get an **Add model** button: paste a profile link to see the account's stats and a time estimate, optionally limit it to the newest N posts, and follow the run's progress. The **Models** page shows each model's stats (likes, rating mix, top tags, the tags that get her the most likes, disk use) and settings. It deletes a whole model or her photos from a range of years; the photo panel in the gallery deletes single photos. Deleted photos are never downloaded again. Edit `tags.txt` to add or tune tags. `python test_instatagger.py` runs the tests.
+Or double-click `start.bat` (or run `python serve.py`) and open http://localhost:8765; it runs until you close its window. The pages then get an **Add model** button: paste a profile link to see the account's stats and a time estimate, optionally limit it to the newest N posts, and follow the run's progress. The **Models** page shows each model's stats (likes, rating mix, top tags, the tags that get her the most likes, disk use) and settings. It deletes a whole model or her photos from a range of years; the photo panel in the gallery deletes single photos. Deleted photos are never downloaded again. The **Settings** page replaces your Instagram login and edits the skip rules: tags that get a photo skipped like one without a girl. Edit `tags.txt` to add or tune tags. `python test_instatagger.py` runs the tests.
 
 Scraping breaks Instagram's terms and can get the account rate-limited. Use it for private research and don't repost the photos.

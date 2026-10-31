@@ -119,14 +119,18 @@ with tempfile.TemporaryDirectory() as d:
     assert np.load(out / "feat.npy")[:, 0].tolist() == [3, 7] and batches == [["B_1.jpg"]]  # nothing tagged again
 instatagger.fetch, instatagger.Tagger, instatagger.build_pages, sys.argv = real
 
-# no_girl: nobody, or a group without a girl, is skipped; a lone "man" is kept (the tagger misreads women in suits)
+# no_girl: nobody, a group without a girl, or a cartoon without a girl is skipped; a lone "man" in a photo is kept
+# (the tagger misreads women in suits), and so is a girl in a dark or edited photo that scores as not realistic
 col = instatagger.booru_columns()
-wd = np.zeros((4, len(col)), np.float16)
+wd = np.zeros((6, len(col)), np.float16)
+wd[:, col["realistic"]] = 0.8
 wd[0, col["no_humans"]] = 0.9                                    # food, scenery
 wd[1, col["1boy"]], wd[1, col["multiple_boys"]] = 0.9, 0.9      # two men
 wd[2, col["1boy"]], wd[2, col["solo"]] = 0.95, 0.95             # her in a suit, read as a man
 wd[3, col["1girl"]], wd[3, col["solo"]] = 0.99, 0.97             # her
-assert instatagger.no_girl(wd).tolist() == [True, True, False, False]
+wd[4, col["1boy"]], wd[4, col["solo"]], wd[4, col["realistic"]] = 0.95, 0.95, 0.01  # a cartoon meme
+wd[5, col["1girl"]], wd[5, col["solo"]], wd[5, col["realistic"]] = 0.9, 0.9, 0.01   # her at night, in neon
+assert instatagger.no_girl(wd).tolist() == [True, True, False, False, True, False]
 
 # build_pages: one all-models page from each profile's data.json, with a Model row
 with tempfile.TemporaryDirectory() as d:

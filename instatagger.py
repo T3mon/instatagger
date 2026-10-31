@@ -232,11 +232,13 @@ def booru_columns():
 
 
 def no_girl(wd):
-    """Pre-screen: nobody in the photo, or people but no girl and no single subject (men, crowds, stages).
-    A lone figure the tagger calls male is kept: it takes women in suits or with slicked-back hair for men."""
+    """Pre-screen: nobody in the photo, people but no girl and no single subject (men, crowds, stages),
+    or no girl in a picture that isn't a photo (cartoons, memes: "realistic" under 0.05; night, neon and edited
+    photos of her score that low too, but with a girl in them).
+    A lone figure the tagger calls male is kept: it takes women in suits, hoodies or flexing for men."""
     col = booru_columns()
     girl = wd[:, [col[t] for t in GIRLS]].max(axis=1)
-    return (wd[:, col["no_humans"]] >= 0.35) | ((girl < 0.45) & (wd[:, col["solo"]] < 0.5))
+    return (wd[:, col["no_humans"]] >= 0.35) | ((girl < 0.45) & ((wd[:, col["solo"]] < 0.5) | (wd[:, col["realistic"]] < 0.05)))
 
 
 def tag(wd, groups):

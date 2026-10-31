@@ -226,5 +226,10 @@ class Handler(SimpleHTTPRequestHandler):
 
 
 if __name__ == "__main__":
+    ThreadingHTTPServer.allow_reuse_address = sys.platform != "win32"  # on Windows it lets a second copy listen on the same port, and pages talk to either one
+    try:
+        server = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
+    except OSError:
+        sys.exit(f"Port {PORT} is already in use, probably by instatagger in another window: open http://localhost:{PORT}")
     print(f"Open http://localhost:{PORT}  (Ctrl+C to stop)")
-    ThreadingHTTPServer(("127.0.0.1", PORT), Handler).serve_forever()
+    server.serve_forever()

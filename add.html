@@ -21,7 +21,7 @@
   #info td:first-child, #eta, .back { color: var(--muted); }
   #msg { color: #ff9592; }
   #run { border-top: 1px solid var(--line); margin-top: 16px; padding-top: 8px; }
-  #pbar { width: 100%; accent-color: var(--accent); }
+  #runsteps progress { display: block; width: calc(100% - 20px); margin: 6px 0 0 20px; accent-color: var(--accent); }
   #runsteps { list-style: none; padding: 0; margin: 8px 0; }
   #runsteps li { margin: 8px 0; }
   #runsteps li.todo { color: var(--muted); }
@@ -47,7 +47,6 @@
   <div id="run" hidden>
     <p id="runhead" aria-live="polite"></p>
     <ol id="runsteps"></ol>
-    <progress id="pbar"></progress>
   </div>
 </main>
 <script>
@@ -60,13 +59,16 @@ const fmt = s => s < 90 ? `${Math.round(s)} s` : `${Math.round(s / 60)} min`;
 const handleOf = text => text.trim().split("instagram.com/").pop().split("/")[0].split("?")[0].replace(/^@/, "");
 const daysAgo = d => { const n = Math.round((Date.now() - Date.parse(d)) / 864e5); return n < 1 ? "today" : n === 1 ? "yesterday" : `${n} days ago`; };
 
-function eta() {  // measured on earlier runs: a page of 12 posts every ~10 s, ~2 downloads/s, ~0.25 s to score a photo and
-  // ~15 s to start; tagging re-scores her whole library. Photos per post come from her own newest posts when known.
+function eta() {  // measured on a 100-post run: ~50 s to find her and list the first 12 posts, then ~12 s per page of 33;
+  // downloads keep up with the listing; the tagger loads in ~35 s meanwhile and tags ~15 photos/s; ~30 s to finish.
+  // Photos per post come from her own newest posts when known.
   const posts = $("limited").checked ? Math.min(Math.max(Math.floor(+$("limit").value) || 0, 0), P.posts) : P.posts;
   const perPost = P.recent ? P.photo_posts / P.recent * P.photos_per_post : 3;
-  const photos = Math.round(posts * perPost), list = Math.ceil(posts / 12) * 10.5, down = photos / 2, score = 30 + (photos + P.have) * 0.25;
-  $("eta").textContent = `About ${fmt(15 + list + down + score)} for ${posts.toLocaleString()} posts (~${photos.toLocaleString()} photos): ` +
-    `listing ${fmt(list)}, downloading ${fmt(down)}, tagging ${fmt(score)}. Downloads depend on your connection.`;
+  if (P.have && ($("limited").checked ? P.listed >= posts : P.to_end))  // it stops at the posts she has
+    return $("eta").textContent = "About 1-2 min: earlier runs already went this far, so it only fetches posts she added since.";
+  const photos = Math.round(posts * perPost), list = 50 + Math.ceil(Math.max(posts - 12, 0) / 33) * 12, tag = 35 + photos / 15;
+  $("eta").textContent = `About ${fmt(Math.max(list, tag) + 30)} for ${posts.toLocaleString()} posts (~${photos.toLocaleString()} photos): ` +
+    `listing takes about ${fmt(list)}, and photos are downloaded and tagged while it lists.`;
 }
 
 async function lookup() {
@@ -93,39 +95,45 @@ async function lookup() {
   if (!P.private) eta();
 }
 
-const STEPS = [
-  ["Listing posts", "Going through her posts on Instagram, 12 per page, one page every 6-12 s so your account doesn't get flagged. Videos and reels are skipped."],
-  ["Downloading photos", "8 at a time. The full photo only stays in memory; a 360 px preview is saved. Failed downloads get one retry."],
-  ["Scoring and tagging", "The booru tagger scores every photo on your GPU. Photos without a girl are skipped and deleted, then your tags are applied and the pages rebuilt."],
+// name, what it does, its progress line, the line that says it's done. The first three overlap: each photo is
+// downloaded as soon as the listing finds it and tagged as soon as it's in
+const STAGES = [
+  ["Listing posts", "Going through her posts on Instagram, one page every 6-12 s so your account doesn't get flagged. Videos and reels are skipped.",
+    /^(\d+)\/(\d+) posts listed, (\d+) photos found/, /the rest are already in her library|stopped the listing|^Step 2\//],
+  ["Downloading photos", "Starts with the first photos found, 8 at a time, in the smallest size that's still sharp enough to tag; each becomes a 360 px preview. Failed downloads get one retry at the end.",
+    /^(\d+)\/(\d+) (photos downloaded|failed photos retried)/, /photos downloaded, \d+ failed/],
+  ["Tagging photos", "The booru tagger scores each photo on your GPU as soon as it's downloaded.",
+    /^(\d+)\/(\d+) photos scored/, /^applying your tags/],
+  ["Finishing", "Photos without a girl are skipped and deleted, your tags are applied and the pages rebuilt.",
+    /^(applying your tags|skipping photos without a girl|building pages)/, /^\d+ photos ->/],
 ];
+const num = n => (+n).toLocaleString();
+const detail = (k, m) => !m ? "" : [
+  `${num(m[1])} of ${num(m[2])} posts, ${num(m[3])} photos found`,
+  `${num(m[1])} of ${num(m[2])} ${m[3] === "photos downloaded" ? "photos" : "failed photos retried"}`,
+  `${num(m[1])} of ${num(m[2])} downloaded photos`,
+  m[1],  // what it's doing now
+][k];
 
 function showRun(s) {  // s.log: [seconds since start, line] from the run's output
-  const starts = [1, 2, 3].map(n => s.log.findIndex(([, l]) => l.startsWith(`Step ${n}/3`)));
-  let bar = null;
-  $("runsteps").innerHTML = STEPS.map(([name, desc], k) => {
-    if (starts[k] < 0) return `<li class="todo">○ ${k + 1}. ${name}</li>`;
-    const next = starts.slice(k + 1).find(i => i >= 0);
-    const lines = s.log.slice(starts[k], next).map(([, l]) => l.trim());
-    const t0 = s.log[starts[k]][0], t1 = next === undefined ? s.elapsed : s.log[next][0];
-    const m = lines.map(l => l.match(/^(\d+)\/(\d+) (posts|photos|failed photos) (?:listed|downloaded|scored|retried)(.*)/)).filter(Boolean).at(-1);
-    const detail = m ? `${(+m[1]).toLocaleString()} of ${(+m[2]).toLocaleString()} ${m[3]}${m[4]}` : "";
-    if (next === undefined && s.running) {  // the step it's on now
-      const sub = lines.filter(l => /^[a-z]/.test(l) && !/warn/i.test(l)).at(-1);  // e.g. "loading the tagger"
-      const left = m && +m[1] ? (m[2] - m[1]) / (m[1] / Math.max(s.elapsed - t0, 1)) : 0;
-      bar = m ? [+m[1], +m[2]] : [];
-      return `<li>● ${k + 1}. ${name}: ${[detail, sub].filter(Boolean).join(", ") || "starting"}` +
-        `${left >= 1 ? `, about ${fmt(left)} left` : ""}<small>${desc}</small></li>`;
-    }
-    return `<li>✓ ${k + 1}. ${name}: ${detail || "done"} (${fmt(t1 - t0)})</li>`;
+  const log = s.log.map(([t, l]) => [t, l.trim()]);
+  $("runsteps").innerHTML = STAGES.map(([name, desc, count, ends], k) => {
+    const hits = log.filter(([, l]) => count.test(l)), last = hits.at(-1), m = last?.[1].match(count);
+    const end = log.find(([, l]) => ends.test(l)) || (k === 0 && m && m[1] === m[2] ? last : null);  // listed them all
+    if (!hits.length && !end) return `<li class="todo">○ ${name}</li>`;
+    const t0 = (hits[0] || end)[0], text = detail(k, m) ? ": " + detail(k, m) : "";
+    if (end) return `<li>✓ ${name}${text} (${fmt(end[0] - t0)})</li>`;
+    if (!s.running) return `<li>✗ ${name}${text}</li>`;
+    const left = k === 0 && m && +m[1] ? (m[2] - m[1]) / (m[1] / Math.max(s.elapsed - t0, 1)) : 0;
+    return `<li>● ${name}${text}${left >= 1 ? `, about ${fmt(left)} left` : ""}` +
+      (k < 3 && m ? `<progress max="${m[2]}" value="${m[1]}"></progress>` : "") + `<small>${desc}</small></li>`;
   }).join("");
   const end = s.log.map(([, l]) => l.match(/^(\d+) photos ->.*\| (\d+) without a girl/)).filter(Boolean).at(-1);
   const why = [...s.log].reverse().map(([, l]) => l).find(l => /Only|No photos|stopped|rror|Not an Instagram/.test(l)) || s.log.at(-1)?.[1] || "unknown error";
-  $("runhead").textContent = s.running ? `Adding @${s.handle}: ${fmt(s.elapsed)} so far.` + (starts[0] < 0 ? " Starting up (loading Python and the tagger)." : "")
+  $("runhead").textContent = s.running ? `Adding @${s.handle}: ${fmt(s.elapsed)} so far.` +
+      (log.some(([, l]) => /posts listed/.test(l)) ? "" : " Starting up and finding her on Instagram.")
     : s.code === 0 && end ? `Done in ${fmt(s.elapsed)}: @${s.handle} now has ${(+end[1]).toLocaleString()} photos (${end[2]} without a girl skipped). She's on the All models page now.`
     : `Adding @${s.handle} stopped: ${why.trim()}`;
-  const b = $("pbar");
-  b.hidden = !s.running;
-  if (bar && bar.length) { b.max = bar[1]; b.value = bar[0]; } else b.removeAttribute("value");  // no count yet: moving bar
 }
 
 async function poll() {

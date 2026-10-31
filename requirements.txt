@@ -4,3 +4,4 @@ torch
 numpy
 pillow
 huggingface_hub
+requests

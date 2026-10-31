@@ -44,9 +44,10 @@ def profile(handle):
     """Her account (one Instagram request), her newest page of posts (one more) and how much of her is already here."""
     p = instaloader.Profile.from_username(instatagger.login(None).context, handle)
     data = HERE / "out" / p.username / "data.json"
+    saved = json.loads(data.read_text(encoding="utf-8")) if data.exists() else {}
     info = {"handle": p.username, "name": p.full_name, "posts": p.mediacount, "followers": p.followers, "verified": p.is_verified,
-            "private": p.is_private and not p.followed_by_viewer,
-            "have": len(json.loads(data.read_text(encoding="utf-8"))["items"]) if data.exists() else 0}
+            "private": p.is_private and not p.followed_by_viewer, "have": len(saved.get("items", [])),
+            "listed": saved.get("listed", 0), "to_end": saved.get("to_end", False)}  # how far her earlier runs listed
     if not info["private"] and p.mediacount:
         info.update(recent_stats(list(islice(p.get_posts(), 12)), p.followers))
     return info

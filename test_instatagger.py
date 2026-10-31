@@ -24,7 +24,13 @@ try:
 except SystemExit:
     pass
 assert [instatagger.failure(e) for e in ["<urlopen error [WinError 10060] A connection attempt failed>", "[WinError 10054] An existing connection was forcibly closed",
-        "HTTP Error 404: Not Found", "<urlopen error [Errno 11001] getaddrinfo failed>"]] == ["timed out", "dropped by the server", "HTTP 404", "no internet"]
+        "HTTP Error 404: Not Found", "<urlopen error [Errno 11001] getaddrinfo failed>", "403 Client Error: Forbidden for url: x",
+        "HTTPSConnectionPool(host='x', port=443): Read timed out. (read timeout=30)"]] == [
+    "timed out", "dropped by the server", "HTTP 404", "no internet", "HTTP 403", "timed out"]
+# the smallest copy Instagram sent that still covers the tagger's 448 px input, never a square crop of a portrait photo
+sizes = {"image_versions2": {"candidates": [{"width": w, "height": w * 4 // 3, "url": f"u{w}"} for w in [2565, 1080, 640, 481, 320]] +
+                                          [{"width": w, "height": w, "url": f"square{w}"} for w in [1080, 480]]}}
+assert instatagger.small_url(sizes) == "u481" and instatagger.small_url({}) is None
 assert parse_tags("# note\n[Place]\nbeach: beach\npool: pool poolside | 0.5\n") == [
     ("Place", [("beach", ["beach"], THRESHOLD), ("pool", ["pool", "poolside"], 0.5)])]
 
@@ -40,8 +46,78 @@ instaloader.Profile.from_username = lambda context, handle: types.SimpleNamespac
 with tempfile.TemporaryDirectory() as d:
     (Path(d) / "session.txt").write_text("1%3Afake%3A2%3Asig")
     instatagger.HERE = Path(d)
-    got = instatagger.list_photos("someone", 2)
-assert [(url, it["f"]) for url, it in got] == [("u/A", "A_1.jpg"), ("u/B1", "B_1.jpg")], got
+    got = list(instatagger.list_photos("someone", 2))
+    assert [(url, it["f"]) for url, it in got] == [("u/A", "A_1.jpg"), ("u/B1", "B_1.jpg")], got
+    # a re-run stops once it's back among known posts, but not at known pinned ones (3 at most) above new posts,
+    # and only when earlier runs reached as far as this one asks
+    post = lambda c: types.SimpleNamespace(shortcode=c, typename="GraphImage", is_video=False, url="u/" + c, likes=1, date_utc=day)
+    posts[:] = [post(c) for c in ["P1", "P2", "N", "K1", "K2", "K3", "K4", "OLD"]]
+    known = {"P1", "P2", "K1", "K2", "K3", "K4"}
+    state = {"listed": 7, "to_end": True}
+    assert [it["c"] for _, it in instatagger.list_photos("someone", None, known, state)] == ["P1", "P2", "N", "K1", "K2", "K3", "K4"]
+    assert state == {"listed": 7, "to_end": True}
+    state = {"listed": 7, "to_end": False}  # earlier runs stopped short of her first post: list it all this time
+    assert len(list(instatagger.list_photos("someone", None, known, state))) == 8 and state == {"listed": 8, "to_end": True}
+
+# fetch: listing, downloading and tagging overlap; a failed download is retried; photos tagged before aren't tagged again
+tries, batches = {}, []
+
+
+def fake_list(handle, limit, known, state):
+    for c in ["A", "B", "C", "A"]:  # A twice: Instagram can repeat a post across pages
+        yield "u/" + c, {"c": c, "n": 1, "l": 1, "d": "2026-01-01", "f": c + "_1.jpg"}
+
+
+def fake_prepare(job):
+    tries[job[1].name] = tries.get(job[1].name, 0) + 1
+    return "timed out" if job[1].name == "B_1.jpg" and tries["B_1.jpg"] == 1 else True  # B fails once, then works
+
+
+class FakeTagger:
+    def score(self, thumbs):
+        batches.append([t.name for t in thumbs])
+        return np.zeros((len(thumbs), 3), np.float16), np.ones((len(thumbs), 2), np.float16)
+
+
+real = instatagger.list_photos, instatagger.prepare, instatagger.time
+instatagger.list_photos, instatagger.prepare, instatagger.time = fake_list, fake_prepare, types.SimpleNamespace(sleep=lambda s: None)
+with tempfile.TemporaryDirectory() as d:
+    scores = {}
+    got = instatagger.fetch("x", None, Path(d), set(), {"C_1.jpg"}, {}, FakeTagger(), {"A_1.jpg": 0}, scores)
+assert [it["f"] for it in got] == ["A_1.jpg", "B_1.jpg"] and tries == {"A_1.jpg": 1, "B_1.jpg": 2}, (got, tries)
+assert batches == [["B_1.jpg"]] and list(scores) == ["B_1.jpg"], batches
+instatagger.list_photos, instatagger.prepare, instatagger.time = real
+
+# a re-run keeps the saved scores of earlier photos, tags only the new one, and saves how far the listing got
+col = instatagger.booru_columns()
+girl = np.zeros(len(col), np.float16)
+girl[col["1girl"]] = girl[col["solo"]] = 0.99
+
+
+def fake_fetch(handle, limit, out, known, never, state, tagger, tagged, scores):
+    assert known == {"O"} and state == {"listed": 50, "to_end": True} and set(tagged) == {"O_1.jpg"}, (known, state, tagged)
+    state["listed"] = 60
+    scores["N_1.jpg"] = girl, np.full(2, 3, np.float16)
+    return [{"c": "N", "n": 1, "l": 9, "d": "2026-01-01", "f": "N_1.jpg"}]
+
+
+real = instatagger.fetch, instatagger.Tagger, instatagger.build_pages, sys.argv
+instatagger.fetch, instatagger.Tagger, instatagger.build_pages, sys.argv = fake_fetch, FakeTagger, lambda: None, ["instatagger.py", "x"]
+with tempfile.TemporaryDirectory() as d:
+    instatagger.HERE = Path(d)
+    out = Path(d) / "out" / "x"
+    (out / "thumbs").mkdir(parents=True)
+    (out / "thumbs" / "O_1.jpg").write_bytes(b"x")
+    (Path(d) / "tags.txt").write_text("[Body]\nass: ass\n")
+    (out / "items.json").write_text(json.dumps([{"c": "O", "n": 1, "l": 5, "d": "2025-01-01", "f": "O_1.jpg"}]))
+    np.save(out / "wd.npy", girl[None])
+    np.save(out / "feat.npy", np.full((1, 2), 7, np.float16))
+    (out / "data.json").write_text(json.dumps({"handle": "x", "items": [], "skipped": 0, "groups": [], "listed": 50, "to_end": True}))
+    instatagger.main()
+    data = json.loads((out / "data.json").read_text())
+    assert [it["f"] for it in data["items"]] == ["N_1.jpg", "O_1.jpg"] and (data["listed"], data["to_end"]) == (60, True), data
+    assert np.load(out / "feat.npy")[:, 0].tolist() == [3, 7] and batches == [["B_1.jpg"]]  # nothing tagged again
+instatagger.fetch, instatagger.Tagger, instatagger.build_pages, sys.argv = real
 
 # no_girl: nobody, or a group without a girl, is skipped; a lone "man" is kept (the tagger misreads women in suits)
 col = instatagger.booru_columns()

@@ -314,20 +314,32 @@ def remove_photos(folder, files, why="removed"):
     return len(gone)
 
 
+def ratings(folder, cols):
+    """Per photo file: the tagger's most likely explicitness level and a 0-3 score for sorting, from its saved scores.
+    Reads only the level columns (cols), so it's quick for the biggest library."""
+    files = [it["f"] for it in json.loads((folder / "items.json").read_text(encoding="utf-8"))]
+    p = np.load(folder / "wd.npy", mmap_mode="r")[:, cols].astype(np.float64)  # float32 would print 1.9 as 1.899999976
+    if len(p) != len(files):
+        return {}  # a run is rewriting her files
+    level = np.array(list(RATINGS.values()))[p.argmax(axis=1)]
+    x = np.round(p @ np.arange(len(cols)) / p.sum(axis=1), 3)
+    return {f: (str(lv), float(s)) for f, lv, s in zip(files, level, x)}
+
+
 def add_scores(data, folder, cols, general):
     """Per shown photo: the tagger's most likely explicitness level as a tag, a 0-3 score for sorting,
     "b": every general booru tag it saw (score >= THRESHOLD) as [column, percent], strongest first,
     and "e": its image features at unit length as int8 in base64, for "same look" matching on the page."""
     if not (folder / "wd.npy").exists():
         return
+    rated = ratings(folder, cols)
     wd = np.load(folder / "wd.npy").astype(np.float32)
     feat = np.load(folder / "feat.npy").astype(np.float32) if (folder / "feat.npy").exists() else None
     row = {it["f"]: k for k, it in enumerate(json.loads((folder / "items.json").read_text(encoding="utf-8")))}
     for it in data["items"]:
         w = wd[row[it["f"]]]
-        p = w[cols]
-        it["t"] = it["t"] + [list(RATINGS.values())[p.argmax()]]
-        it["x"] = round(float(p @ np.arange(len(p)) / p.sum()), 3)
+        it["t"] = it["t"] + [rated[it["f"]][0]]
+        it["x"] = rated[it["f"]][1]
         seen = general[w[general] >= THRESHOLD]
         it["b"] = [[int(j), round(float(w[j]) * 100)] for j in seen[np.argsort(-w[seen])]]
         if feat is not None:

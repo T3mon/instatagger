@@ -72,7 +72,7 @@
     <p class="sum" id="sum"></p>
     <p id="msg" role="alert"></p>
   </div>
-  <div id="cards"><div class="loading"><span class="spin big"></span>Loading your models: reading every photo's scores takes a few seconds</div></div>
+  <div id="cards"><div class="loading"><span class="spin big"></span>Loading your models...</div></div>
   <section class="box" aria-labelledby="sethead">
     <h2 id="sethead">Settings</h2>
     <table id="settings"></table>
@@ -127,9 +127,17 @@ function card(m, running) {
   </article>`;
 }
 
+const LOADING = $("cards").innerHTML;
 async function load() {
   try { M = await api("/api/models"); }
-  catch (err) { $("sum").textContent = ""; $("msg").textContent = `Couldn't load the models: ${err.message}`; return; }
+  catch (err) {  // a TypeError: the server didn't answer at all
+    $("sum").textContent = "";
+    $("cards").innerHTML = `<div class="loading"><span>Couldn't load your models: ${err instanceof TypeError ?
+      "the app isn't answering. Is its window still open? Start it again with start.bat." : esc(err.message)}</span>
+      <button class="btn" id="retry">Try again</button></div>`;
+    $("retry").onclick = () => { $("cards").innerHTML = LOADING; load(); };
+    return;
+  }
   const ms = M.models, add = k => ms.reduce((a, m) => a + m[k], 0);
   $("sum").textContent = `${ms.length} models · ${num(add("photos"))} photos from ${num(add("posts"))} posts · ` +
     `${num(add("skipped"))} skipped · ${size(add("disk"))} on disk, ${size(M.settings.free)} free` +

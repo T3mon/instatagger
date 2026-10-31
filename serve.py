@@ -64,7 +64,11 @@ def walk(folder):
 def model_stats(folder, cols):
     """Everything the Models page shows about one model, from her saved files (no Instagram calls)."""
     d = json.loads((folder / "data.json").read_text(encoding="utf-8"))
-    instatagger.add_scores(d, folder, cols, np.array([], int))  # adds the rating; no booru tag list needed here
+    # only the ratings: add_scores also builds every photo's tag list and image features, 0.2-0.7 s a model
+    rated = instatagger.ratings(folder, cols) if (folder / "wd.npy").exists() else {}
+    for it in d["items"]:
+        if it["f"] in rated:
+            it["t"], it["x"] = it["t"] + [rated[it["f"]][0]], rated[it["f"]][1]
     items, levels = d["items"], list(instatagger.RATINGS.values())
     seen = [it for it in items if it["l"] > 3]  # Instagram reports 3 when likes are hidden
     mid = median(it["l"] for it in seen) if seen else None
@@ -245,9 +249,13 @@ class Handler(SimpleHTTPRequestHandler):
             return self.reply(200, {"handle": run["handle"], "running": busy(),
                                     "code": proc.poll() if proc else None, "elapsed": round(elapsed), "log": run["log"]})
         if url.path == "/api/models":
-            cols = [instatagger.booru_columns()[r] for r in instatagger.RATINGS]
-            return self.reply(200, {"models": [model_stats(f.parent, cols) for f in sorted((HERE / "out").glob("*/data.json"))],
-                                    "settings": settings(), "running": run["handle"] if busy() else None})
+            cols, models = [instatagger.booru_columns()[r] for r in instatagger.RATINGS], []
+            for f in sorted((HERE / "out").glob("*/data.json")):
+                try:
+                    models.append(model_stats(f.parent, cols))
+                except (OSError, ValueError, KeyError, EOFError):  # her files are being rewritten by a run or a delete
+                    pass  # shortcut: a model whose files are broken for good disappears too; show it as an error card if that happens
+            return self.reply(200, {"models": models, "settings": settings(), "running": run["handle"] if busy() else None})
         if url.path == "/api/settings":
             return self.reply(200, settings())
         if url.path == "/api/login":

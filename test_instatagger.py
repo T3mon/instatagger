@@ -212,6 +212,12 @@ with tempfile.TemporaryDirectory() as d:
     assert (m["top"], m["lift"], m["rating"], m["per_week"]) == ([["ass", 10]], [["ass", 3.0]], None, 7.2), m
     assert [it["l"] for it in m["best"]] == [300] * 4 and m["files"] == 2, m
     assert got["settings"]["groups"] == [["Body", 1]] and got["settings"]["session"] is None, got["settings"]
+    broken = Path(d) / "out" / "zz"
+    broken.mkdir()
+    (broken / "data.json").write_text("{")  # half written, e.g. by a run finishing right now
+    assert [m["handle"] for m in call("GET", "/api/models")[1]["models"]] == ["a"]  # the page still loads, without her
+    (broken / "data.json").unlink()
+    broken.rmdir()
     assert call("POST", "/api/delete", {"u": "nobody"})[0] == 404
     # Settings: the sessionid is checked with Instagram (stubbed) before it's saved
     serve.check_login = lambda session=None: "me" if session and session.startswith("12345%3A") else None

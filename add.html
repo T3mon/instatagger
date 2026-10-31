@@ -119,12 +119,15 @@ function showRun(s) {  // s.log: [seconds since start, line] from the run's outp
   const log = s.log.map(([t, l]) => [t, l.trim()]);
   $("runsteps").innerHTML = STAGES.map(([name, desc, count, ends], k) => {
     const hits = log.filter(([, l]) => count.test(l)), last = hits.at(-1), m = last?.[1].match(count);
-    const end = log.find(([, l]) => ends.test(l)) || (k === 0 && m && m[1] === m[2] ? last : null);  // listed them all
+    const end = (k === 0 && m && m[1] === m[2] ? last : null) || log.find(([, l]) => ends.test(l));  // or: listed them all
     if (!hits.length && !end) return `<li class="todo">○ ${name}</li>`;
-    const t0 = (hits[0] || end)[0], text = detail(k, m) ? ": " + detail(k, m) : "";
+    const t0 = ((k === 0 && log.find(([, l]) => /^Step 1\//.test(l))) || hits[0] || end)[0];  // listing starts with the run
+    const text = detail(k, m) ? ": " + detail(k, m) : "";
     if (end) return `<li>✓ ${name}${text} (${fmt(end[0] - t0)})</li>`;
     if (!s.running) return `<li>✗ ${name}${text}</li>`;
-    const left = k === 0 && m && +m[1] ? (m[2] - m[1]) / (m[1] / Math.max(s.elapsed - t0, 1)) : 0;
+    // pace since the first page: finding her on Instagram first takes ~50 s and would make the rest look slow
+    const first = hits[0]?.[1].match(count), done = m && first ? m[1] - first[1] : 0;
+    const left = k === 0 && done > 0 ? (m[2] - m[1]) * (s.elapsed - hits[0][0]) / done : 0;
     return `<li>● ${name}${text}${left >= 1 ? `, about ${fmt(left)} left` : ""}` +
       (k < 3 && m ? `<progress max="${m[2]}" value="${m[1]}"></progress>` : "") + `<small>${desc}</small></li>`;
   }).join("");

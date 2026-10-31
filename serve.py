@@ -43,7 +43,7 @@ def recent_stats(posts, followers):
 
 def profile(handle):
     """Her account (one Instagram request), her newest page of posts (one more) and how much of her is already here."""
-    p = instaloader.Profile.from_username(instatagger.login(None).context, handle)
+    p = instatagger.find_profile(instatagger.login(None).context, handle)
     data = HERE / "out" / p.username / "data.json"
     saved = json.loads(data.read_text(encoding="utf-8")) if data.exists() else {}
     info = {"handle": p.username, "name": p.full_name, "posts": p.mediacount, "followers": p.followers, "verified": p.is_verified,

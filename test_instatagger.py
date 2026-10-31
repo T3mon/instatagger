@@ -1,5 +1,6 @@
 """Run: python test_instatagger.py"""
 import base64
+import contextlib
 import http.client
 import json
 import sys
@@ -33,6 +34,24 @@ sizes = {"image_versions2": {"candidates": [{"width": w, "height": w * 4 // 3, "
 assert instatagger.small_url(sizes) == "u481" and instatagger.small_url({}) is None
 assert parse_tags("# note\n[Place]\nbeach: beach\npool: pool poolside | 0.5\n") == [
     ("Place", [("beach", ["beach"], THRESHOLD), ("pool", ["pool", "poolside"], 0.5)])]
+
+# find_profile: when Instagram leaves the profile out of her page, she's found by the user id the page still names
+# (stubbed, no Instagram calls); a page without an id, or with someone else's, still means she doesn't exist
+def gone(context, handle):
+    raise instaloader.exceptions.ProfileNotExistsException(f"Profile {handle} does not exist.")
+
+
+real_from_id = instaloader.Profile.from_id
+instaloader.Profile.from_username = gone
+instaloader.Profile.from_id = lambda context, pk: types.SimpleNamespace(username={42: "her", 7: "someone_else"}[pk])
+ctx = types.SimpleNamespace(is_logged_in=True, get_anonymous_session=contextlib.nullcontext)
+for page, found in [('"page_id":"profilePage_42","profile_id":"42"', "her"), ("no id here", None), ('"profile_id":"7"', None)]:
+    ctx._get_page = lambda session, path, page=page: page
+    try:
+        assert instatagger.find_profile(ctx, "Her").username == found
+    except instaloader.exceptions.ProfileNotExistsException:
+        assert found is None, page
+instaloader.Profile.from_id = real_from_id
 
 # list_photos on a fake profile (no Instagram calls): newest-N limit, one entry per carousel slide, videos skipped
 day = datetime(2026, 10, 1)

@@ -90,6 +90,26 @@ def login(rate_controller=Polite, session=None):
     return L
 
 
+def find_profile(context, handle):
+    """Her Instagram profile. Instaloader reads it from her public page, but for some accounts (e.g. leo__theresa, maybe
+    geo-restricted) Instagram embeds the profile there as null, so it says she doesn't exist. The page still names her
+    user id, and asking for that id as you works: two more requests, only for such profiles."""
+    try:
+        return instaloader.Profile.from_username(context, handle)
+    except instaloader.exceptions.ProfileNotExistsException as missing:
+        if not context.is_logged_in:
+            raise
+        try:  # shortcut: Instaloader's private _get_page is the only way to its raw page; follow it if it's renamed
+            with context.get_anonymous_session() as session:
+                found = re.search(r'"profile_id":"(\d+)"', context._get_page(session, f"{handle}/"))
+        except instaloader.exceptions.InstaloaderException:
+            found = None  # e.g. a 404: she really doesn't exist
+        profile = instaloader.Profile.from_id(context, int(found.group(1))) if found else None
+        if not profile or profile.username != handle.lower():
+            raise missing
+        return profile
+
+
 def small_url(media):
     """The smallest copy Instagram sent whose long side still covers the tagger's 448 px input (previews are 360 px).
     It sends ~14 copies, from the original upload (often 2500+ px, ~300 KB) down, plus square crops to leave out."""
@@ -111,7 +131,7 @@ def list_photos(handle, limit=None, known=(), state=None):
     L = login()
     found = i = 0
     try:
-        profile = instaloader.Profile.from_username(L.context, handle)
+        profile = find_profile(L.context, handle)
         total = min(limit or profile.mediacount, profile.mediacount)
         covered = state["to_end"] if limit is None else state["listed"] >= limit
         streak = 0  # known posts in a row: at most 3 are pinned at the top, so 4 means we're back among old posts

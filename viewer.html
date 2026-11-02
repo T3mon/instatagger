@@ -28,6 +28,16 @@
   .chips { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 16px; border-top: 1px solid var(--line); min-height: 48px; }
   #count { color: var(--muted); margin-right: 4px; }
   .chip { height: 32px; padding: 0 10px; border-radius: 999px; border: 1px solid var(--accent); background: var(--accent); color: #fff; }
+  #modelbar { display: flex; align-items: center; gap: 12px; padding: 6px 16px; border-bottom: 1px solid var(--line); }
+  #modelbar[hidden] { display: none; }
+  .mbtoggle { flex: none; border: 0; background: none; color: var(--muted); font-size: 13px; white-space: nowrap; padding: 4px 0; }
+  #mbrow { display: flex; gap: 8px; overflow-x: auto; padding: 2px 0 4px; scrollbar-width: thin; }
+  #modelbar.folded #mbrow { display: none; }
+  .mb { flex: none; width: 64px; display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 0; border: 0; background: none; color: var(--muted); font-size: 11px; }
+  .mb img { width: 46px; height: 46px; border-radius: 50%; object-fit: cover; object-position: 50% 20%; padding: 2px; border: 2px solid transparent; background: var(--panel); }
+  .mb[aria-pressed="true"] { color: var(--text); }
+  .mb[aria-pressed="true"] img { border-color: var(--accent); }
+  .mb span { max-width: 64px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .chip.no { background: transparent; border-color: var(--no); color: #ff9592; }
   .linkbtn { border: 0; background: none; color: var(--muted); text-decoration: underline; }
   .chip.like { display: inline-flex; align-items: center; gap: 6px; padding-left: 3px; }
@@ -138,6 +148,10 @@
   </div>
   <div class="chips" id="chips"></div>
 </header>
+<section id="modelbar" aria-label="Models" hidden>
+  <button class="mbtoggle" id="mbtoggle" aria-expanded="true" aria-controls="mbrow"><span aria-hidden="true">▾</span> <span id="mbsum">Models</span></button>
+  <div id="mbrow" role="group" aria-label="Show only these models"></div>
+</section>
 <div class="layout">
   <nav aria-label="Filters" id="filters">
     <section class="spice" aria-labelledby="spicehead">
@@ -171,6 +185,7 @@
 <script>
 const D = /*DATA*/null;  // filled in by instatagger.py
 const sel = new Map();  // tag -> true: must have it, false: must not have it
+const pick = new Set();  // models picked in the bar above the grid: their photos only; none picked shows everyone
 let picked = null, shown = [];
 const $ = id => document.getElementById(id);
 const esc = s => String(s).replace(/[&<>"]/g, c => `&#${c.charCodeAt(0)};`);
@@ -296,7 +311,7 @@ function render() {
   $("spiceval").textContent = `${lo}% – ${hi}%`;
   $("spicefill").style.left = lo + "%";
   $("spicefill").style.right = 100 - hi + "%";
-  const tagged = D.items.filter(it => [...sel].every(([t, want]) => has(it, t) === want));
+  const tagged = D.items.filter(it => (!pick.size || pick.has(it.h)) && [...sel].every(([t, want]) => has(it, t) === want));
   $("presets").innerHTML = BANDS.map(([name, a, b]) => `<button data-lo="${a}" data-hi="${b}" aria-pressed="${lo === a && hi === b}">` +
     `${name} (${a}–${b}%)<span>${tagged.filter(it => Math.round(spice(it)) >= a && Math.round(spice(it)) <= b).length.toLocaleString()}</span></button>`).join("");
   shown = tagged.filter(it => Math.round(spice(it)) >= lo && Math.round(spice(it)) <= hi).sort(order[$("sort").value]);
@@ -328,9 +343,12 @@ function render() {
     (like?.e ? `<span class="mode" role="group" aria-label="Match by">${[["both", "Both"], ["look", "Look"], ["tags", "Tags"]].map(([k, name]) =>
       `<button data-by="${k}" aria-pressed="${by === k}">${name}</button>`).join("")}</span>` : "") +
     (spiced ? `<button class="chip" id="unspice" aria-label="Remove suggestiveness filter">suggestive ${lo}–${hi}% ✕</button>` : "") +
+    [...pick].map(h => `<button class="chip" data-h="${esc(h)}" aria-label="Stop showing only @${esc(h)}">@${esc(h)} ✕</button>`).join("") +
     [...sel].map(([t, want]) => `<button class="chip${want ? "" : " no"}" data-t="${esc(t)}" aria-label="Remove filter ${esc(label(t))}">${want ? "" : "not "}${esc(label(t))} ✕</button>`).join("") +
     `<button class="btn" id="anytag" style="height: 32px">+ Any tag</button>` +
-    (sel.size || spiced || like ? `<button class="linkbtn" id="clear">Clear all</button>` : `<span style="color:var(--muted)">Use + to require a tag, − to exclude it</span>`);
+    (sel.size || pick.size || spiced || like ? `<button class="linkbtn" id="clear">Clear all</button>` : `<span style="color:var(--muted)">Use + to require a tag, − to exclude it</span>`);
+  for (const b of $("mbrow").children) b.setAttribute("aria-pressed", pick.has(b.dataset.h));
+  $("mbsum").textContent = pick.size ? `Models · ${pick.size} of ${$("mbrow").children.length}` : "Models";
   if ($("tagbox").open) tagList();
   if (!shown.includes(picked)) picked = shown[0] || null;
   const alike = it => it === like ? "Starting photo" : `${Math.round(it.m[0] * 100)}% alike`;
@@ -348,7 +366,7 @@ function inspect() {
   $("inspector").innerHTML = `<img src="${src(it)}" alt="Selected photo">` +
     `<div class="meta"><strong>@${esc(it.h || D.handle)}</strong><span>${it.d} · slide ${it.n}</span></div>` +
     `<div class="pills"><span class="pill">♥ ${shownLikes(it)}</span>${rating ? `<span class="pill" style="background:${RATING[rating]}">${rating}</span>` : ""}</div>` +
-    `<div class="pills">${it.t.filter(t => !RATING[t] && !t.startsWith("@")).map(t => `<button class="tagpill" data-t="${esc(t)}" title="Show only photos with ${esc(t)}">${esc(t)}</button>`).join("")}</div>` +
+    `<div class="pills">${it.t.filter(t => !RATING[t]).map(t => `<button class="tagpill" data-t="${esc(t)}" title="Show only photos with ${esc(t)}">${esc(t)}</button>`).join("")}</div>` +
     (like && it !== like ? `<div class="why"><b>${Math.round(it.m[0] * 100)}% alike</b> the starting photo by ` +
       `${{both: "tags and look", look: "look", tags: "tags"}[basis()]}. Both have:<div class="pills">` +
       (it.m[1].slice(0, 8).map(j => `<button class="bt" data-t="b:${esc(D.vocab[j])}" title="Show only photos with this tag">${esc(tagName(j))}</button>`).join("") ||
@@ -397,8 +415,25 @@ $("chips").onclick = e => {
     render();
     return scrollTo(0, y);
   }
-  if (b.id === "clear") { sel.clear(); like = back = null; } else if (b.dataset.t) sel.delete(b.dataset.t);
+  if (b.id === "clear") { sel.clear(); pick.clear(); like = back = null; } else if (b.dataset.t) sel.delete(b.dataset.t);
+  else if (b.dataset.h) pick.delete(b.dataset.h);
   render();
+};
+$("mbrow").onclick = e => {
+  const b = e.target.closest(".mb");
+  if (!b) return;
+  pick.has(b.dataset.h) ? pick.delete(b.dataset.h) : pick.add(b.dataset.h);
+  render();
+};
+function fold(on) {  // the bar folds to one line; picked models still show as chips above
+  $("modelbar").classList.toggle("folded", on);
+  $("mbtoggle").setAttribute("aria-expanded", !on);
+  $("mbtoggle").firstElementChild.textContent = on ? "▸" : "▾";
+}
+$("mbtoggle").onclick = () => {
+  const on = !$("modelbar").classList.contains("folded");
+  fold(on);
+  try { localStorage.setItem("modelbar", on ? "folded" : "open"); } catch {}  // remembered per browser, if storage is allowed
 };
 $("grid").onclick = e => {
   const b = e.target.closest("button");
@@ -470,6 +505,16 @@ document.title = (D.title || "@" + D.handle) + " · instatagger";
 $("all").hidden = !!D.all;  // the all-models page doesn't link to itself
 $("home").href = D.all ? "index.html" : "../index.html";
 $("add").hidden = $("models").hidden = $("settings").hidden = location.protocol === "file:";  // they need serve.py
+if (D.all) {  // the bar of models, on the all-models page: each one's face is her most-liked close-up
+  const by = new Map();
+  for (const it of D.items) by.has(it.h) ? by.get(it.h).push(it) : by.set(it.h, [it]);
+  const face = its => [...its].sort((a, b) => b.t.includes("face close-up") - a.t.includes("face close-up") ||
+    a.t.includes("no face") - b.t.includes("no face") || (likes(b) ?? -1) - (likes(a) ?? -1))[0];
+  $("mbrow").innerHTML = [...by].sort(([a], [b]) => a.localeCompare(b)).map(([h, its]) => `<button class="mb" data-h="${esc(h)}" ` +
+    `aria-pressed="false" title="@${esc(h)}: ${its.length.toLocaleString()} photos"><img src="${src(face(its))}" alt="" loading="lazy"><span>${esc(h)}</span></button>`).join("");
+  $("modelbar").hidden = false;
+  try { fold(localStorage.getItem("modelbar") === "folded"); } catch {}
+}
 shuffle();  // the browser may bring back Random as the sort when the page is reloaded
 render();
 </script>

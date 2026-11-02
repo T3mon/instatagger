@@ -171,9 +171,8 @@ with tempfile.TemporaryDirectory() as d:
     (Path(d) / "out" / "a" / "items.json").write_text(json.dumps([{"f": "X_1.jpg"}]))
     instatagger.build_pages()
     page = json.loads((Path(d) / "out" / "index.html").read_text().removeprefix("const D = ").removesuffix(";"))
-assert [g for g, _ in page["groups"]] == ["Model", "Rating", "Body"], page["groups"]
-assert page["groups"][0] == ["Model", ["@a", "@b"]]
-assert [it["h"] for it in page["items"]] == ["a", "b"] and page["items"][0]["t"] == ["ass", "questionable", "@a"]
+assert [g for g, _ in page["groups"]] == ["Rating", "Body"], page["groups"]  # models aren't a tag group: the page has a bar for them
+assert [it["h"] for it in page["items"]] == ["a", "b"] and page["items"][0]["t"] == ["ass", "questionable"]
 assert abs(page["items"][0]["x"] - 1.9) < 0.01 and "x" not in page["items"][1]
 assert [(page["vocab"][j], pct) for j, pct in page["items"][0]["b"]] == [("1girl", 99), ("beach", 80)]  # no ratings, strongest first
 assert list(np.frombuffer(base64.b64decode(page["items"][0]["e"]), np.int8)) == [76, 0, -102, 0] and "e" not in page["items"][1]

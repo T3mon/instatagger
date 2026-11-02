@@ -375,7 +375,7 @@ def build_pages():
     def write(path, data):
         path.write_text(template.replace("/*DATA*/null", json.dumps(data).replace("</", "<\\/")), encoding="utf-8")
 
-    items, groups = [], {"Model": []}
+    items, groups = [], {}
     with open(hf_hub_download(MODEL, "selected_tags.csv"), encoding="utf-8") as f:
         tags_csv = list(csv.DictReader(f))
     vocab = [r["name"] for r in tags_csv]  # the page looks up each photo's "b" columns here
@@ -385,8 +385,7 @@ def build_pages():
         d = json.loads(f.read_text(encoding="utf-8"))
         add_scores(d, f.parent, [col[r] for r in RATINGS], general)
         write(f.parent / "index.html", {**d, "vocab": vocab})
-        groups["Model"].append("@" + d["handle"])
-        items += [{**it, "h": d["handle"], "t": it["t"] + ["@" + d["handle"]]} for it in d["items"]]
+        items += [{**it, "h": d["handle"]} for it in d["items"]]  # the page's bar of models filters by "h", not by a tag
         for g, tags in d["groups"]:  # profiles tagged with an older tags.txt keep their old tag names
             known = groups.setdefault(g, [])
             known += [t for t in tags if t not in known]

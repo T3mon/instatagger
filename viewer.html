@@ -24,6 +24,7 @@
   select { height: 40px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 0 10px; }
   .btn { height: 40px; display: inline-flex; align-items: center; padding: 0 16px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel); text-decoration: none; }
   .btn.main { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 500; }
+  .btn[hidden] { display: none; }
   .chips { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 16px; border-top: 1px solid var(--line); min-height: 48px; }
   #count { color: var(--muted); margin-right: 4px; }
   .chip { height: 32px; padding: 0 10px; border-radius: 999px; border: 1px solid var(--accent); background: var(--accent); color: #fff; }
@@ -127,7 +128,9 @@
       <option value="spicy">Most suggestive</option>
       <option value="new">Newest</option>
       <option value="old">Oldest</option>
+      <option value="random">Random</option>
     </select></label>
+    <button class="btn" id="shuffle" hidden title="Shuffle the photos again">↻ Shuffle</button>
     <a class="btn" id="all" href="../index.html">All models</a>
     <a class="btn" id="models" href="/models">Models</a>
     <a class="btn" id="settings" href="/settings">Settings</a>
@@ -180,7 +183,10 @@ const order = {  // posts with hidden likes go last either way
   spicy: (a, b) => (b.x ?? 0) - (a.x ?? 0) || (likes(b) ?? -1) - (likes(a) ?? -1),
   new: (a, b) => b.d.localeCompare(a.d) || a.n - b.n,
   old: (a, b) => a.d.localeCompare(b.d) || a.n - b.n,
+  random: (a, b) => a.r - b.r,
 };
+// each photo's place in the random order: kept while you filter, new when you pick Random or press Shuffle
+const shuffle = () => { for (const it of D.items) it.r = Math.random(); };
 const TRASH = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">` +
   `<path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v6M14 11v6"/></svg>`;
 const RATING = {safe: "#14532d", suggestive: "#3b2a12", questionable: "#4c1d1d", explicit: "#5b1230"};
@@ -307,6 +313,7 @@ function render() {
   }
   $("sort").disabled = !!like;
   $("sort").title = like ? "Sorted by how alike the photos are" : "";
+  $("shuffle").hidden = $("sort").value !== "random" || !!like;
   for (const row of rows) {
     const t = row.dataset.t, state = sel.get(t);
     row.className = "tag" + (state === true ? " yes" : state === false ? " no" : "");
@@ -446,7 +453,8 @@ $("find").oninput = () => {
   for (const row of rows) row.hidden = q && !row.dataset.t.toLowerCase().includes(q);
   for (const d of $("filters").querySelectorAll("details")) if (q) d.open = [...d.querySelectorAll(".tag")].some(r => !r.hidden);
 };
-$("sort").onchange = render;
+$("sort").onchange = () => { if ($("sort").value === "random") shuffle(); render(); };
+$("shuffle").onclick = () => { shuffle(); render(); };
 $("lo").oninput = () => { if (+$("lo").value > +$("hi").value) $("hi").value = $("lo").value; render(); };  // handles can't cross
 $("hi").oninput = () => { if (+$("hi").value < +$("lo").value) $("lo").value = $("hi").value; render(); };
 $("presets").onclick = e => {
@@ -462,6 +470,7 @@ document.title = (D.title || "@" + D.handle) + " · instatagger";
 $("all").hidden = !!D.all;  // the all-models page doesn't link to itself
 $("home").href = D.all ? "index.html" : "../index.html";
 $("add").hidden = $("models").hidden = $("settings").hidden = location.protocol === "file:";  // they need serve.py
+shuffle();  // the browser may bring back Random as the sort when the page is reloaded
 render();
 </script>
 </body>

@@ -278,6 +278,19 @@ with tempfile.TemporaryDirectory() as d:
     assert len(json.loads((folder / "skipped.json").read_text())) == 3 and json.loads((folder / "data.json").read_text())["skipped"] == 3
     assert len(np.load(folder / "wd.npy")) == len(json.loads((folder / "items.json").read_text())) == 26
     assert call("POST", "/api/skip", {"rules": off, "custom": ""})[1]["skip"] == []
+    # download: asks where in a Save As window (stubbed), then saves the full-size photo there (Instagram stubbed too)
+    (folder / "thumbs" / "big.jpg").write_bytes(b"full size")
+    serve.original = lambda code, n: (f"http://127.0.0.1:{srv.server_port}/a/thumbs/big.jpg", 1080, 1350)
+    target = Path(d) / "saved" / "x.jpg"
+    target.parent.mkdir()
+    serve.ask_where = lambda name: str(target) if name == "a_ABCDE_2.jpg" else None
+    assert call("POST", "/api/download", {"u": "a", "c": "ABCDE", "n": 2}) == (200, {"saved": str(target), "width": 1080, "height": 1350})
+    assert target.read_bytes() == b"full size" and serve.saved_settings()["download_dir"] == str(target.parent)
+    assert serve.saved_settings()["skip"] == off  # remembering the folder keeps the other settings
+    serve.ask_where = lambda name: None  # the window was closed
+    assert call("POST", "/api/download", {"u": "a", "c": "ABCDE", "n": 2}) == (200, {"cancelled": True})
+    assert call("POST", "/api/download", {"u": "a", "c": "../x", "n": 1})[0] == 400
+    assert call("POST", "/api/download", {"u": "a", "c": "ABCDE", "n": 0})[0] == 400
     serve.start("b", [sys.executable, "-c", "import time; time.sleep(30)"])
     assert call("POST", "/api/delete", {"u": "a"})[0] == 409 and folder.exists()  # not while a run is going
     assert call("POST", "/api/delete", {"u": "a", "years": [2027, 2030]}) == (200, {"deleted": 0})  # photos of another model are fine

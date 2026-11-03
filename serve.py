@@ -17,6 +17,7 @@ from urllib.parse import parse_qs, urlparse
 
 import instaloader
 import numpy as np
+import requests
 
 import instatagger
 
@@ -164,15 +165,54 @@ def skip_preview(rules, custom):
 def save_skips(rules, lines, custom):
     """Save the skip rules (built-in ones in settings.json, yours in tags.txt) and delete the photos they catch now.
     Returns how many photos were deleted."""
-    path = HERE / "settings.json"
-    saved = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
-    path.write_text(json.dumps({**saved, "skip": rules}, indent=1), encoding="utf-8")
+    remember(skip=rules)
     before, _, after = skip_section()
     (HERE / "tags.txt").write_text("\n".join(before + lines + ([""] if after else []) + after) + "\n", encoding="utf-8")
     deleted = sum(instatagger.remove_photos(folder, set(files), "skipped") for folder, _, files in skip_preview(rules, custom) if files)
     if deleted:
         instatagger.build_pages()
     return deleted
+
+
+def saved_settings():
+    path = HERE / "settings.json"
+    return json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+
+
+def remember(**values):
+    """Keep values in settings.json, next to what's there already."""
+    (HERE / "settings.json").write_text(json.dumps({**saved_settings(), **values}, indent=1), encoding="utf-8")
+
+
+save_window = threading.Lock()  # one Save As window at a time
+
+
+def ask_where(name):
+    """Where to save a download, picked in a Save As window the server opens on your desktop: a page can't make the
+    browser ask, and Brave turns off the file-picker API pages could use. Starts in the folder used last; None if cancelled."""
+    import tkinter  # only here: the server needs no window otherwise
+    from tkinter import filedialog
+    with save_window:
+        root = tkinter.Tk()
+        root.withdraw()
+        root.attributes("-topmost", True)  # in front of the browser
+        try:
+            return filedialog.asksaveasfilename(
+                parent=root, title="Save the full-size photo", initialfile=name, defaultextension=".jpg",
+                initialdir=str(saved_settings().get("download_dir") or Path.home() / "Downloads"),
+                filetypes=[("JPEG image", "*.jpg"), ("All files", "*.*")]) or None
+        finally:
+            root.destroy()
+
+
+def original(code, n):
+    """Slide n of a post at the size it was uploaded, as (url, width, height). The gallery only keeps 360 px previews;
+    Instagram's media info lists every size it has (one Instagram request)."""
+    ctx = instatagger.login(None).context
+    media = ctx.get_iphone_json(f"api/v1/media/{instaloader.Post.shortcode_to_mediaid(code)}/info/", {})["items"][0]
+    slide = (media.get("carousel_media") or [media])[n - 1]
+    big = max(slide["image_versions2"]["candidates"], key=lambda c: c["width"] * c["height"])
+    return big["url"], big["width"], big["height"]
 
 
 def check_login(session=None):
@@ -277,7 +317,7 @@ class Handler(SimpleHTTPRequestHandler):
     def do_POST(self):
         if not self.allowed():
             return self.reply(403, {"error": "Forbidden"})
-        if self.path not in ("/api/add", "/api/delete", "/api/settings", "/api/skip", "/api/skip/preview"):
+        if self.path not in ("/api/add", "/api/delete", "/api/download", "/api/settings", "/api/skip", "/api/skip/preview"):
             return self.reply(404, {"error": "Not found"})
         body = json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)) or "{}")
         if self.path.startswith("/api/skip"):
@@ -310,6 +350,30 @@ class Handler(SimpleHTTPRequestHandler):
             handle = instatagger.handle_from(str(body.get("u", "")))
         except SystemExit as e:
             return self.reply(400, {"error": str(e)})
+        if self.path == "/api/download":
+            code, n = str(body.get("c", "")), body.get("n")
+            if not re.fullmatch(r"[\w-]{5,40}", code) or type(n) is not int or n < 1:
+                return self.reply(400, {"error": "Not a photo of a post"})
+            where = ask_where(f"{handle}_{code}_{n}.jpg")
+            if not where:
+                return self.reply(200, {"cancelled": True})
+            try:
+                url, width, height = original(code, n)
+                r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=60)
+                r.raise_for_status()
+            except (SystemExit, instaloader.exceptions.InstaloaderException, KeyError, IndexError) as e:  # no login, post gone
+                return self.reply(502, {"error": f"Instagram didn't give the full-size photo: {e}"})
+            except requests.RequestException as e:
+                return self.reply(502, {"error": f"The download failed: {instatagger.failure(str(e))}"})
+            path = Path(where)
+            if "webp" in r.headers.get("Content-Type", ""):  # Instagram sends JPEG; keep the name honest if it ever doesn't
+                path = path.with_suffix(".webp")
+            try:
+                path.write_bytes(r.content)
+            except OSError as e:
+                return self.reply(500, {"error": f"Couldn't save it there: {e}"})
+            remember(download_dir=str(path.parent))
+            return self.reply(200, {"saved": str(path), "width": width, "height": height})
         if self.path == "/api/delete":
             folder = HERE / "out" / handle
             if not (folder / "data.json").exists():

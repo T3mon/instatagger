@@ -7,6 +7,17 @@
 # [Skip] adds more reasons: a photo with one of these tags is skipped and deleted the same way.
 [Skip]
 
+[Pose]
+lying: lying on_back on_stomach
+hand on hip: hand_on_own_hip
+arms up: arms_up arms_behind_head
+squatting: squatting
+kneeling: kneeling
+all fours: all_fours
+arched back: arched_back
+crossed legs: crossed_legs
+bent over: bent_over
+
 [Body part]
 ass: ass
 back shot: from_behind back looking_back
@@ -25,17 +36,6 @@ strapless: strapless
 stockings: thighhighs garter_belt garter_straps pantyhose fishnets
 high heels: high_heels
 implied nude: nude topless covering_privates
-
-[Pose]
-lying: lying on_back on_stomach
-hand on hip: hand_on_own_hip
-arms up: arms_up arms_behind_head
-squatting: squatting
-kneeling: kneeling
-all fours: all_fours
-arched back: arched_back
-crossed legs: crossed_legs
-bent over: bent_over
 
 [Expression]
 smile: smile

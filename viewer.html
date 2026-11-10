@@ -428,7 +428,7 @@ $("chips").onclick = e => {
   else if (b.dataset.h) pick.delete(b.dataset.h);
   render();
 };
-$("mball").onclick = () => {  // all picked: clear to None; otherwise pick every model
+$("mball").onclick = () => {  // with every model picked it clears them; otherwise it picks them all
   const all = pick.size === $("mbrow").children.length;
   pick.clear();
   if (!all) for (const b of $("mbrow").children) pick.add(b.dataset.h);

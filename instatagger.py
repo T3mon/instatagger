@@ -21,6 +21,7 @@ import threading
 import time
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timezone
 from functools import cache
 from io import BytesIO
 from itertools import islice
@@ -123,6 +124,29 @@ def small_url(media):
     return min(fits, key=lambda c: c["width"])["url"]
 
 
+def feed_photos(context, user_id, known, seen):
+    """Her newest posts from the Instagram app's feed: one request, about 12 posts with every image size. Yields
+    (url, item) like list_photos and adds each shortcode to seen. Returns (posts gone through, photos found,
+    whether it got back among known posts, so nothing older is new)."""
+    page = context.get_iphone_json(f"api/v1/feed/user/{user_id}/", {})
+    streak = i = found = 0
+    for i, media in enumerate(page.get("items", []), 1):
+        code = media["code"]
+        seen.add(code)
+        if media.get("media_type") != 2:  # 2: a video; they neither count nor break a streak, as in list_photos
+            streak = streak + 1 if code in known else 0
+        likes = 0 if media.get("like_and_view_counts_disabled") else media.get("like_count") or 0
+        day = datetime.fromtimestamp(media["taken_at"], timezone.utc).date().isoformat()
+        for num, slide in enumerate(media.get("carousel_media") or [media], 1):  # numbered with videos, like list_photos
+            if slide.get("media_type") != 2:
+                found += 1
+                yield (small_url(slide) or slide["image_versions2"]["candidates"][0]["url"],
+                       {"c": code, "n": num, "l": likes, "d": day, "f": f"{code}_{num}.jpg"})
+        if streak >= 4:
+            return i, found, True
+    return i, found, False
+
+
 def list_photos(handle, limit=None, known=(), state=None):
     """(url, item) for every photo slide of the newest `limit` posts (None = all) as their page arrives; videos are skipped.
     known: shortcodes already in her library. state: what earlier runs listed, {"listed": posts gone through,
@@ -131,8 +155,17 @@ def list_photos(handle, limit=None, known=(), state=None):
     state = state if state is not None else {"listed": 0, "to_end": False}
     L = login()
     found = i = 0
+    seen = set()  # posts the app's feed already gave
     try:
+        if state.get("id") and limit is None and state["to_end"]:  # an update: her newest posts in one request, no profile lookup
+            i, found, back = yield from feed_photos(L.context, state["id"], known, seen)
+            if back:
+                say(f"  {i}/{i} posts listed, {found} photos found: the rest are already in her library")
+                return
+            i = 0  # more new posts than one feed page: list her posts as usual, skipping the ones it gave
         profile = find_profile(L.context, handle)
+        if getattr(profile, "userid", None):
+            state["id"] = profile.userid  # saved with her library, so updates can skip this lookup
         total = min(limit or profile.mediacount, profile.mediacount)
         covered = state["to_end"] if limit is None else state["listed"] >= limit
         streak = 0  # known posts in a row: at most 3 are pinned at the top, so 4 means we're back among old posts
@@ -143,14 +176,14 @@ def list_photos(handle, limit=None, known=(), state=None):
             posts._query_variables["data"]["count"] = PAGE
         for i, post in enumerate(islice(posts, limit), 1):
             if post.typename != "GraphVideo":  # videos aren't kept, so they neither count nor break a streak
-                streak = streak + 1 if post.shortcode in known else 0
+                streak = streak + 1 if post.shortcode in known or post.shortcode in seen else 0
             # shortcut: Instaloader keeps the post as Instagram sent it, with every image size, only in this internal field
             media = getattr(post, "_node", {}).get("iphone_struct") or {}
             slides = media.get("carousel_media") or [media]
             nodes = (post.get_sidecar_nodes() if post.typename == "GraphSidecar"
                      else [instaloader.PostSidecarNode(post.is_video, post.url, None)])
             for num, node in enumerate(nodes, 1):
-                if not node.is_video:
+                if not node.is_video and post.shortcode not in seen:
                     found += 1
                     yield (small_url(slides[num - 1] if num <= len(slides) else {}) or node.display_url,
                            {"c": post.shortcode, "n": num, "l": post.likes or 0, "d": post.date_utc.date().isoformat(),
@@ -466,7 +499,7 @@ def update(handle, limit=None, retag=False, tagger=None, build=True):
     removed = saved_set(out / "removed.json")  # photos you deleted: never downloaded again either
     old = json.loads((out / "items.json").read_text(encoding="utf-8")) if (out / "items.json").exists() else []
     saved = json.loads((out / "data.json").read_text(encoding="utf-8")) if (out / "data.json").exists() else {}
-    state = {"listed": saved.get("listed", 0), "to_end": saved.get("to_end", False)}
+    state = {"listed": saved.get("listed", 0), "to_end": saved.get("to_end", False), **({"id": saved["id"]} if "id" in saved else {})}
     rows = {}  # file -> its row in the saved scores and features: a re-run keeps those instead of tagging again
     if (out / "wd.npy").exists() and (out / "feat.npy").exists():
         wd_old, feat_old = np.load(out / "wd.npy"), np.load(out / "feat.npy")

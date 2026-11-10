@@ -79,6 +79,32 @@ with tempfile.TemporaryDirectory() as d:
     state = {"listed": 7, "to_end": False}  # earlier runs stopped short of her first post: list it all this time
     assert len(list(instatagger.list_photos("someone", None, known, state))) == 8 and state == {"listed": 8, "to_end": True}
 
+    # an update of a model whose id is saved: one request to the app's feed, no profile lookup, when it gets back to
+    # known posts; with more new posts than one feed page, her posts are listed as usual without repeating the feed's
+    def media(code, kind=1, slides=None):
+        sizes = {"candidates": [{"url": f"i/{code}", "width": 1080, "height": 1350}]}
+        return {"code": code, "media_type": kind, "taken_at": 1793491200, "like_count": 9, "image_versions2": sizes,
+                **({"carousel_media": slides} if slides else {})}
+    feed = [media("N1"), media("V", 2), media("N2", 8, [media("s1"), media("s2", 2), media("s3")]), *map(media, ["K1", "K2", "K3", "K4"])]
+    asked = []
+    fake_ctx = types.SimpleNamespace(get_iphone_json=lambda path, params: asked.append(path) or {"items": feed})
+    real_login, instatagger.login = instatagger.login, lambda *a, **k: types.SimpleNamespace(context=fake_ctx)
+    instaloader.Profile.from_username = gone  # the fast path never looks her up
+    state = {"listed": 50, "to_end": True, "id": 42}
+    got = list(instatagger.list_photos("someone", None, {"K1", "K2", "K3", "K4"}, state))
+    assert asked == ["api/v1/feed/user/42/"] and [it["f"] for _, it in got] == ["N1_1.jpg", "N2_1.jpg", "N2_3.jpg", "K1_1.jpg",
+                                                                               "K2_1.jpg", "K3_1.jpg", "K4_1.jpg"], got
+    assert got[0] == ("i/N1", {"c": "N1", "n": 1, "l": 9, "d": "2026-11-01", "f": "N1_1.jpg"}) and state == {"listed": 50, "to_end": True, "id": 42}
+    feed[:] = [media("N1"), media("N2")]  # all new: the listing goes on past them
+    posts[:] = [post(c) for c in ["N1", "N2", "N3", "K1", "K2", "K3", "K4", "OLD"]]
+    instaloader.Profile.from_username = lambda context, handle: types.SimpleNamespace(mediacount=8, userid=42, get_posts=lambda: iter(posts))
+    got = [it["c"] for _, it in instatagger.list_photos("someone", None, {"K1", "K2", "K3", "K4"}, state)]
+    assert got == ["N1", "N2", "N3", "K1", "K2", "K3", "K4"], got
+    state = {"listed": 0, "to_end": False}  # a first run saves her id for later updates
+    list(instatagger.list_photos("someone", None, set(), state))
+    assert state["id"] == 42
+    instatagger.login = real_login
+
 # fetch: listing, downloading and tagging overlap; a failed download is retried; photos tagged before aren't tagged again
 tries, batches = {}, []
 

@@ -46,13 +46,11 @@
   .thumbs { display: grid; grid-template-columns: repeat(auto-fill, minmax(60px, 1fr)); gap: 4px; margin-top: 10px; }
   .thumbs img { width: 100%; aspect-ratio: 4 / 5; object-fit: cover; border-radius: 4px; display: block; background: var(--line); }
   .warn { color: var(--warn); font-size: 12.5px; }
-  .spin { display: inline-block; width: 14px; height: 14px; border: 2px solid var(--line); border-top-color: var(--accent); border-radius: 50%;
-    animation: spin .8s linear infinite; vertical-align: -2px; margin-right: 6px; }
-  @keyframes spin { to { transform: rotate(360deg); } }
-  @media (prefers-reduced-motion: reduce) { .spin { animation-duration: 3s; } .toggle, .toggle::after { transition: none; } }
+  @media (prefers-reduced-motion: reduce) { .toggle, .toggle::after { transition: none; } }
   @media (max-width: 480px) { .rule p, .cond { margin-left: 0; } }
   :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 </style>
+<link rel="stylesheet" href="/spin.css">
 </head>
 <body>
 <main>
@@ -61,7 +59,7 @@
 
   <section aria-labelledby="loginhead">
     <h2 id="loginhead">Instagram login</h2>
-    <p id="session" class="muted">Loading...</p>
+    <p id="session" class="muted"><span class="spin"></span> Loading...</p>
     <p class="muted">The app lists posts as you, with your browser's <code>sessionid</code> cookie. To get a fresh one: log in on instagram.com,
       press F12, open Application → Cookies → https://www.instagram.com and copy the Value of <b>sessionid</b>.
       It's saved in session.txt on this computer only and never shown here. Anyone with it is logged in as you.</p>
@@ -99,6 +97,7 @@ const api = (path, opts = {}) => fetch(path, {...opts, headers: {"X-Instatagger"
   .then(async r => { const j = await r.json(); if (!r.ok) throw new Error(j.error); return j; });
 const esc = s => String(s).replace(/[&<>"]/g, c => `&#${c.charCodeAt(0)};`);
 const say = (id, text, ok) => { $(id).textContent = text; $(id).className = ok ? "ok" : "bad"; };
+const wait = (id, text) => { $(id).innerHTML = `<span class="spin"></span> ${esc(text)}`; $(id).className = "muted"; };  // until an answer comes
 const num = n => n.toLocaleString();
 
 // The built-in rules: key, name, what it catches, its conditions as [score, sign]. Their numbers come from the server.
@@ -162,7 +161,7 @@ async function preview() {  // what saving these rules would delete now, with so
     $("impact").className = ""; $("impact").innerHTML = `<span class="bad">Cut-offs are scores from 0 to 1.</span>`;
     return $("saveskip").disabled = true;
   }
-  $("impact").className = ""; $("impact").innerHTML = `<span class="spin"></span><span class="muted">Checking your library...</span>`;
+  $("impact").className = ""; $("impact").innerHTML = `<span class="muted"><span class="spin"></span> Checking your library...</span>`;
   let r;
   try { r = await api("/api/skip/preview", {method: "POST", body: JSON.stringify(form())}); }
   catch (err) {
@@ -200,7 +199,7 @@ $("skipform").onsubmit = async e => {
   e.preventDefault();
   if (total && !confirm(`Delete ${num(total)} photos for good? They're never downloaded again.`)) return;
   $("saveskip").disabled = true;
-  $("saveskip").innerHTML = `<span class="spin"></span>${total ? `Deleting ${num(total)} photos...` : "Saving..."}`;
+  $("saveskip").innerHTML = `<span class="spin"></span> ${total ? `Deleting ${num(total)} photos...` : "Saving..."}`;
   try {
     S = await api("/api/skip", {method: "POST", body: JSON.stringify(form())});
     showSkips(S); $("skip").value = S.skip.join("\n"); saved = JSON.stringify(form());
@@ -214,7 +213,7 @@ async function busy(button, work) {  // each check is one Instagram request, so 
   try { await work(); } finally { button.disabled = false; }
 }
 $("check").onclick = () => busy($("check"), async () => {
-  say("loginmsg", "Asking Instagram...", true);
+  wait("loginmsg", "Asking Instagram...");
   try {
     const {user} = await api("/api/login");
     user ? say("loginmsg", `Works: logged in as @${user}.`, true) : say("loginmsg", "Instagram didn't accept the saved one: paste a fresh sessionid above.");
@@ -222,7 +221,7 @@ $("check").onclick = () => busy($("check"), async () => {
 });
 $("loginform").onsubmit = e => { e.preventDefault(); busy($("save"), async () => {
   if (!$("sid").value.trim()) return say("loginmsg", "Paste a sessionid first.");
-  say("loginmsg", "Checking it with Instagram...", true);
+  wait("loginmsg", "Checking it with Instagram...");
   try {
     const {user} = await api("/api/settings", {method: "POST", body: JSON.stringify({session: $("sid").value})});
     $("sid").value = "";

@@ -157,6 +157,7 @@ assert instatagger.no_girl(wd, less).tolist() == [True, True, False, False, Fals
 with tempfile.TemporaryDirectory() as d:
     instatagger.HERE = Path(d)
     (Path(d) / "viewer.html").write_text("const D = /*DATA*/null;")
+    (Path(d) / "spin.css").write_text("")
     for h in ["a", "b"]:
         (Path(d) / "out" / h / "thumbs").mkdir(parents=True)
         (Path(d) / "out" / h / "thumbs" / "X_1.jpg").write_bytes(b"x")
@@ -201,6 +202,8 @@ page.request("GET", "/settings")
 assert b"Skipped photos" in page.getresponse().read()
 page.request("GET", "/favicon.ico")
 assert page.getresponse().read()[:4] == b"\0\0\1\0"  # an .ico file
+page.request("GET", "/spin.css")
+assert b"@keyframes spin" in page.getresponse().read()
 assert call("POST", "/api/add", {"u": "../x"})[0] == 400
 assert call("POST", "/api/add", {"u": "someone", "limit": 0})[0] == 400
 serve.start("someone", [sys.executable, "-c", "print('Listing posts'); print('skipped x.jpg: timeout'); print('3 photos -> done')"])
@@ -217,6 +220,7 @@ assert [line for _, line in status["log"]] == ["Listing posts", "3 photos -> don
 with tempfile.TemporaryDirectory() as d:
     serve.HERE = instatagger.HERE = Path(d)
     (Path(d) / "viewer.html").write_text("const D = /*DATA*/null;")
+    (Path(d) / "spin.css").write_text("")
     (Path(d) / "tags.txt").write_text("[Body]\nass: ass\n")
     folder = Path(d) / "out" / "a"
     (folder / "thumbs").mkdir(parents=True)

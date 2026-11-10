@@ -119,11 +119,7 @@
   .delphoto { width: 40px; height: 40px; display: grid; place-items: center; border-radius: 10px; border: 1px solid var(--line); background: var(--panel); color: var(--muted); }
   .delphoto:hover { color: #ff9592; border-color: #5b1d1d; }
   .delphoto[data-armed] { background: var(--no); border-color: var(--no); color: #fff; }
-  .spin { display: inline-block; width: 16px; height: 16px; border: 3px solid var(--line); border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite; vertical-align: middle; }
-  .loading { grid-column: 1 / -1; display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 80px 0; color: var(--muted); }
-  .loading .spin { width: 36px; height: 36px; }
-  @keyframes spin { to { transform: rotate(360deg); } }
-  @media (prefers-reduced-motion: reduce) { .spin { animation-duration: 3s; } }
+  /*SPIN*/
   @media (max-width: 900px) { nav, aside { position: static; max-height: none; max-width: none; border: 0; } }
 </style>
 </head>

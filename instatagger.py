@@ -370,7 +370,8 @@ def add_scores(data, folder, cols, general):
 
 def build_pages():
     """Write every out/<handle>/index.html and the all-models out/index.html from the saved data.json files (no re-tagging)."""
-    template = (HERE / "viewer.html").read_text(encoding="utf-8")
+    # the shared spinner goes inline, so a page opened straight from disk has it too
+    template = (HERE / "viewer.html").read_text(encoding="utf-8").replace("/*SPIN*/", (HERE / "spin.css").read_text(encoding="utf-8"))
 
     def write(path, data):
         path.write_text(template.replace("/*DATA*/null", json.dumps(data).replace("</", "<\\/")), encoding="utf-8")

@@ -47,15 +47,11 @@
   select { height: 36px; color: var(--text); background: var(--raise); border: 1px solid var(--line); border-radius: 8px; padding: 0 8px; font: inherit; }
   .range { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
   .range .btn { height: 36px; color: #ff9592; }
-  .spin { display: inline-block; width: 18px; height: 18px; border: 3px solid var(--line); border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite; vertical-align: middle; }
-  .big { width: 36px; height: 36px; }
-  .loading { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 60px 0; color: var(--muted); grid-column: 1 / -1; }
   #toast { position: fixed; top: 12px; left: 50%; transform: translateX(-50%); z-index: 5; display: flex; align-items: center; gap: 10px;
     padding: 10px 16px; border-radius: 10px; background: var(--raise); border: 1px solid var(--line); box-shadow: 0 6px 24px #000a; }
   #toast[hidden] { display: none; }
-  @keyframes spin { to { transform: rotate(360deg); } }
-  @media (prefers-reduced-motion: reduce) { .spin { animation-duration: 3s; } }
 </style>
+<link rel="stylesheet" href="/spin.css">
 </head>
 <body>
 <header>
@@ -72,7 +68,7 @@
     <p class="sum" id="sum"></p>
     <p id="msg" role="alert"></p>
   </div>
-  <div id="cards"><div class="loading"><span class="spin big"></span>Loading your models...</div></div>
+  <div id="cards"><div class="loading"><span class="spin"></span>Loading your models...</div></div>
   <section class="box" aria-labelledby="sethead">
     <h2 id="sethead">Settings</h2>
     <table id="settings"></table>

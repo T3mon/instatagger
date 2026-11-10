@@ -29,6 +29,7 @@
   .row { display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px; }
   :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 </style>
+<link rel="stylesheet" href="/spin.css">
 </head>
 <body>
 <main>
@@ -80,7 +81,7 @@ async function lookup() {
   $("go").hidden = true;
   if (!/^\w(?:[\w.]{0,28}\w)?$/.test(handle)) return $("info").textContent = "That doesn't look like an Instagram link or handle.";
   const mine = ++seq;
-  $("info").textContent = `Looking up @${handle} on Instagram...`;
+  $("info").innerHTML = `<p class="muted"><span class="spin"></span> Looking up @${esc(handle)} on Instagram...</p>`;
   let p;
   try { p = await api("/api/profile?u=" + encodeURIComponent(handle)); }
   catch (err) { if (mine === seq) $("info").innerHTML = esc(err.message) + loginHelp(err.message); return; }
@@ -131,12 +132,12 @@ function showRun(s) {  // s.log: [seconds since start, line] from the run's outp
     // pace since the first page: finding her on Instagram first takes ~50 s and would make the rest look slow
     const first = hits[0]?.[1].match(count), done = m && first ? m[1] - first[1] : 0;
     const left = k === 0 && done > 0 ? (m[2] - m[1]) * (s.elapsed - hits[0][0]) / done : 0;
-    return `<li>● ${name}${text}${left >= 1 ? `, about ${fmt(left)} left` : ""}` +
+    return `<li><span class="spin"></span> ${name}${text}${left >= 1 ? `, about ${fmt(left)} left` : ""}` +
       (k < 3 && m ? `<progress max="${m[2]}" value="${m[1]}"></progress>` : "") + `<small>${desc}</small></li>`;
   }).join("");
   const end = s.log.map(([, l]) => l.match(/^(\d+) photos ->.*\| (\d+) without a girl/)).filter(Boolean).at(-1);
   const why = [...s.log].reverse().map(([, l]) => l).find(l => /Only|No photos|stopped|rror|Not an Instagram/.test(l)) || s.log.at(-1)?.[1] || "unknown error";
-  $("runhead").innerHTML = esc(s.running ? `Adding @${s.handle}: ${fmt(s.elapsed)} so far.` +
+  $("runhead").innerHTML = (s.running ? `<span class="spin"></span> ` : "") + esc(s.running ? `Adding @${s.handle}: ${fmt(s.elapsed)} so far.` +
       (log.some(([, l]) => /posts listed/.test(l)) ? "" : " Starting up and finding her on Instagram.")
     : s.code === 0 && end ? `Done in ${fmt(s.elapsed)}: @${s.handle} now has ${(+end[1]).toLocaleString()} photos (${end[2]} skipped). She's on the All models page now.`
     : `Adding @${s.handle} stopped: ${why.trim()}`) + (!s.running && !(s.code === 0 && end) ? loginHelp(why) : "");

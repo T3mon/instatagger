@@ -185,7 +185,7 @@ with tempfile.TemporaryDirectory() as d:
     for h in ["a", "b", "c", "d"]:
         (Path(d) / "out" / h).mkdir(parents=True)
         (Path(d) / "out" / h / "data.json").write_text("{}")
-    got = {"a": (3, 1, None), "c": (2, 0, "401 Unauthorized - Please wait a few minutes"), "d": (5, 0, None)}
+    got = {"a": (3, 1, None), "c": (2, 0, '400 Bad Request - "fail" status, message "feedback_required" when accessing https://x'), "d": (5, 0, None)}
 
     def fake_update(handle, tagger=None, build=True):
         assert tagger == "T" and not build
@@ -202,7 +202,7 @@ lines = out.getvalue().splitlines()
 assert "== Updating @d (4/4)" not in lines, lines  # blocked at c: d isn't asked for
 assert lines[-4].startswith("Update all stopped: Instagram is blocking") and lines[-4].endswith("5 new photos for 2 of 4 models, 3 checked"), lines
 assert lines[-3:] == ["  @a: +3 (1 without a girl skipped)", "  @b: +0, Instagram stopped: No photos found",
-                      "  @c: +2, Instagram stopped: 401 Unauthorized - Please wait a few minutes"], lines
+                      "  @c: +2, Instagram stopped: 400 Bad Request - \"fail\" status, message \"feedback_required\""], lines
 
 # serve.py: API needs the X-Instatagger header, checks input, and reports a run's output (a fake run, no Instagram)
 import serve  # noqa: E402

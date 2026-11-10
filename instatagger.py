@@ -534,8 +534,11 @@ def update_all():
             got[handle] = update(handle, tagger=tagger, build=False)
         except (Exception, SystemExit) as e:  # one model failing doesn't stop the rest
             got[handle] = (0, 0, str(e) or type(e).__name__)
-        why = got[handle][2]
-        if why and re.search(r"401|403|429|302|wait a few minutes|login|checkpoint", why, re.I):
+        n, skip, why = got[handle]
+        why = why and why.split(" when accessing ")[0]  # the URL says nothing to you
+        got[handle] = n, skip, why
+        # feedback_required: Instagram flagged the account as automated; the rest are rate limits and lost logins
+        if why and re.search(r"400 Bad Request|401|403|429|302|wait a few minutes|feedback_required|challenge|login|checkpoint", why, re.I):
             blocked = why
             break
     print("  building pages", flush=True)

@@ -217,8 +217,15 @@ def original(code, n):
 
 
 def check_login(session=None):
-    """Your Instagram username if the sessionid works (one Instagram request), else None."""
-    return instatagger.login(None, session=session).test_login()
+    """Your Instagram username if the sessionid works (one Instagram request), else None. Instaloader's own check asks
+    a GraphQL query Instagram rate-limits, and turns that into "not logged in" too, so a good sessionid looked bad."""
+    ctx = instatagger.login(None, session=session).context
+    try:
+        return ctx.get_iphone_json("api/v1/accounts/current_user/?edit=true", {})["user"]["username"]
+    except instaloader.exceptions.ConnectionException as e:
+        if re.search(r"logged_out|login_required", str(e)):
+            return None
+        raise  # anything else, e.g. a rate limit, is shown as Instagram said it
 
 
 def rebuild_later():
@@ -311,14 +318,14 @@ class Handler(SimpleHTTPRequestHandler):
             except SystemExit as e:  # no session.txt
                 return self.reply(400, {"error": str(e)})
             except instaloader.exceptions.InstaloaderException as e:
-                return self.reply(400, {"error": f"Instagram: {e}"})
+                return self.reply(400, {"error": f"Instagram: {str(e).split(' when accessing ')[0]}"})
         if url.path == "/api/profile":
             try:
                 return self.reply(200, profile(instatagger.handle_from(parse_qs(url.query).get("u", [""])[0])))
             except SystemExit as e:  # bad handle or no session.txt
                 return self.reply(400, {"error": str(e)})
             except instaloader.exceptions.InstaloaderException as e:
-                return self.reply(400, {"error": f"Instagram: {e}"})
+                return self.reply(400, {"error": f"Instagram: {str(e).split(' when accessing ')[0]}"})
         self.reply(404, {"error": "Not found"})
 
     def do_POST(self):
@@ -348,7 +355,7 @@ class Handler(SimpleHTTPRequestHandler):
             try:
                 user = check_login(session)
             except instaloader.exceptions.InstaloaderException as e:
-                return self.reply(400, {"error": f"Instagram: {e}"})
+                return self.reply(400, {"error": f"Instagram: {str(e).split(' when accessing ')[0]}"})
             if not user:
                 return self.reply(400, {"error": "Instagram didn't accept it: copy a fresh one while logged in to instagram.com"})
             (HERE / "session.txt").write_text(session, encoding="utf-8")

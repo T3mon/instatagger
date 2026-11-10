@@ -1,4 +1,4 @@
-/* The one loading indicator. Inline: <span class="spin"></span> Text (sized by the text around it).
+/* The one loading indicator for every page. Inline: <span class="spin"></span> Text (it takes the size of the text around it).
    For a whole page or section: <div class="loading"><span class="spin"></span>Text</div> */
 .spin { display: inline-block; flex: none; width: 1em; height: 1em; border: .17em solid var(--line); border-top-color: var(--accent);
   border-radius: 50%; animation: spin .8s linear infinite; vertical-align: -.15em; }

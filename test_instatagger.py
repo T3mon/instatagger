@@ -2,6 +2,7 @@
 import base64
 import contextlib
 import http.client
+import io
 import json
 import sys
 import tempfile
@@ -178,6 +179,29 @@ assert abs(page["items"][0]["x"] - 1.9) < 0.01 and "x" not in page["items"][1]
 assert [(page["vocab"][j], pct) for j, pct in page["items"][0]["b"]] == [("1girl", 99), ("beach", 80)]  # no ratings, strongest first
 assert list(np.frombuffer(base64.b64decode(page["items"][0]["e"]), np.int8)) == [76, 0, -102, 0] and "e" not in page["items"][1]
 
+# update_all: every model in turn with one tagger; a failing model doesn't stop the rest; a summary at the end
+with tempfile.TemporaryDirectory() as d:
+    instatagger.HERE = Path(d)
+    for h in ["a", "b", "c"]:
+        (Path(d) / "out" / h).mkdir(parents=True)
+        (Path(d) / "out" / h / "data.json").write_text("{}")
+    got = {"a": (3, 1), "c": (0, 0)}
+
+    def fake_update(handle, tagger=None, build=True):
+        assert tagger == "T" and not build
+        if handle == "b":
+            sys.exit("Instagram said no")
+        return got[handle]
+    real = instatagger.update, instatagger.Tagger, instatagger.build_pages
+    instatagger.update, instatagger.Tagger, instatagger.build_pages = fake_update, lambda: "T", lambda: None
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        instatagger.update_all()
+    instatagger.update, instatagger.Tagger, instatagger.build_pages = real
+lines = out.getvalue().splitlines()
+assert "Update all done: 3 new photos for 1 of 3 models" in lines and "  @a: +3 (1 without a girl skipped)" in lines, lines
+assert lines[-1] == "  @b failed: Instagram said no" and "== Updating @c (3/3)" in lines, lines
+
 # serve.py: API needs the X-Instatagger header, checks input, and reports a run's output (a fake run, no Instagram)
 import serve  # noqa: E402
 
@@ -206,6 +230,10 @@ page.request("GET", "/spin.css")
 assert b"@keyframes spin" in page.getresponse().read()
 assert call("POST", "/api/add", {"u": "../x"})[0] == 400
 assert call("POST", "/api/add", {"u": "someone", "limit": 0})[0] == 400
+serve.start(serve.ALL, [sys.executable, "-c", "import time; time.sleep(3)"])  # while every model is updated
+assert serve.busy("anyone") and call("POST", "/api/add", {"all": True}) == (409, {"error": "Still updating all models: wait for it to finish"})
+serve.run["proc"].kill()
+serve.run["proc"].wait()
 serve.start("someone", [sys.executable, "-c", "print('Listing posts'); print('skipped x.jpg: timeout'); print('3 photos -> done')"])
 serve.run["proc"].wait()
 for _ in range(50):

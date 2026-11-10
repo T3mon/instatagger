@@ -118,7 +118,7 @@ function card(m, running) {
     <div class="row">
       <a class="btn" href="/${encodeURIComponent(m.handle)}/index.html">Open</a>
       <a class="btn" href="/add?u=${encodeURIComponent(m.handle)}" target="_blank">Add new posts</a>
-      <button class="btn del" data-act="model" ${running ? `disabled title="Wait for @${esc(running)} to finish adding"` : ""}>Delete</button>
+      <button class="btn del" data-act="model" ${running ? `disabled title="Wait: ${esc(running)} now"` : ""}>Delete</button>
     </div>
   </article>`;
 }
@@ -137,7 +137,7 @@ async function load() {
   const ms = M.models, add = k => ms.reduce((a, m) => a + m[k], 0);
   $("sum").textContent = `${ms.length} models · ${num(add("photos"))} photos from ${num(add("posts"))} posts · ` +
     `${num(add("skipped"))} skipped · ${size(add("disk"))} on disk, ${size(M.settings.free)} free` +
-    (M.running ? ` · adding @${M.running} now` : "");
+    (M.running ? ` · ${M.running} now` : "");
   $("cards").innerHTML = ms.map(m => card(m, M.running)).join("") || `<p class="muted">No models yet. <a href="/add">Add one</a>.</p>`;
   document.querySelectorAll(".range").forEach(rangeCount);
   const s = M.settings, tags = s.groups.reduce((a, [, n]) => a + n, 0);

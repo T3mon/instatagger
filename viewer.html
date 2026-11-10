@@ -144,6 +144,7 @@
     <a class="btn" id="all" href="../index.html">All models</a>
     <a class="btn" id="models" href="/models">Models</a>
     <a class="btn" id="settings" href="/settings">Settings</a>
+    <a class="btn" id="updall" href="/add?all=1" target="_blank" title="Fetch and tag the new posts of every model">Update all</a>
     <a class="btn main" id="add" href="/add" target="_blank">+ Add model</a>
   </div>
   <div class="chips" id="chips"></div>
@@ -539,7 +540,7 @@ $("title").textContent = D.title || "@" + D.handle;
 document.title = (D.title || "@" + D.handle) + " · instatagger";
 $("all").hidden = !!D.all;  // the all-models page doesn't link to itself
 $("home").href = D.all ? "index.html" : "../index.html";
-$("add").hidden = $("models").hidden = $("settings").hidden = location.protocol === "file:";  // they need serve.py
+$("add").hidden = $("updall").hidden = $("models").hidden = $("settings").hidden = location.protocol === "file:";  // they need serve.py
 if (D.all) {  // the bar of models, on the all-models page: each one's face is her most-liked close-up
   const by = new Map();
   for (const it of D.items) by.has(it.h) ? by.get(it.h).push(it) : by.set(it.h, [it]);

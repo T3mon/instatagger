@@ -23,6 +23,7 @@ import instatagger
 
 HERE = Path(__file__).parent
 PORT = 8765
+ALL = "all models"  # run["handle"] while every model is being updated; no Instagram handle has a space
 run = {"handle": None, "proc": None, "log": [], "started": 0, "ended": None}  # one run at a time: Instagram sees one listing
 files_lock, stale = threading.Lock(), threading.Event()  # deletes and page rebuilds take turns on the library files
 
@@ -149,7 +150,7 @@ def skip_preview(rules, custom):
     """What these skip rules catch in each model's library now: [(her folder, her photos, file names caught)]."""
     found = []
     for f in sorted((HERE / "out").glob("*/items.json")):
-        if busy() and f.parent.name == run["handle"]:
+        if busy(f.parent.name):
             continue  # her files are being rewritten
         items = json.loads(f.read_text(encoding="utf-8"))
         wd = np.load(f.parent / "wd.npy") if (f.parent / "wd.npy").exists() else None
@@ -231,8 +232,14 @@ def rebuild_later():
     threading.Thread(target=go, daemon=True).start()
 
 
-def busy():
-    return bool(run["proc"] and run["proc"].poll() is None)
+def busy(handle=None):
+    """A run is going (on her, when a handle is given: an update of all models counts for each of them)."""
+    going = bool(run["proc"] and run["proc"].poll() is None)
+    return going and (handle is None or run["handle"] in (handle, ALL))
+
+
+def doing():
+    return "updating all models" if run["handle"] == ALL else f"adding @{run['handle']}"
 
 
 def start(handle, cmd):
@@ -295,7 +302,7 @@ class Handler(SimpleHTTPRequestHandler):
                     models.append(model_stats(f.parent, cols))
                 except (OSError, ValueError, KeyError, EOFError):  # her files are being rewritten by a run or a delete
                     pass  # shortcut: a model whose files are broken for good disappears too; show it as an error card if that happens
-            return self.reply(200, {"models": models, "settings": settings(), "running": run["handle"] if busy() else None})
+            return self.reply(200, {"models": models, "settings": settings(), "running": doing() if busy() else None})
         if url.path == "/api/settings":
             return self.reply(200, settings())
         if url.path == "/api/login":
@@ -329,7 +336,7 @@ class Handler(SimpleHTTPRequestHandler):
                 return self.reply(200, {"models": [{"handle": folder.name, "photos": n, "drop": len(files), "sample": files[:12]}
                                                    for folder, n, files in skip_preview(rules, custom)]})
             if busy():  # the run re-checks and rewrites her files at its end
-                return self.reply(409, {"error": f"Still adding @{run['handle']}: wait for it to finish"})
+                return self.reply(409, {"error": f"Still {doing()}: wait for it to finish"})
             with files_lock:
                 deleted = save_skips(rules, lines, custom)
             return self.reply(200, {**settings(), "deleted": deleted})
@@ -346,6 +353,11 @@ class Handler(SimpleHTTPRequestHandler):
                 return self.reply(400, {"error": "Instagram didn't accept it: copy a fresh one while logged in to instagram.com"})
             (HERE / "session.txt").write_text(session, encoding="utf-8")
             return self.reply(200, {"user": user})
+        if self.path == "/api/add" and body.get("all") is True:  # fetch and tag the new posts of every model
+            if busy():
+                return self.reply(409, {"error": f"Still {doing()}: wait for it to finish"})
+            start(ALL, [sys.executable, "-u", str(HERE / "instatagger.py"), "--all"])
+            return self.reply(200, {"started": ALL})
         try:
             handle = instatagger.handle_from(str(body.get("u", "")))
         except SystemExit as e:
@@ -379,8 +391,8 @@ class Handler(SimpleHTTPRequestHandler):
             if not (folder / "data.json").exists():
                 return self.reply(404, {"error": f"@{handle} isn't in the library"})
             years, files = body.get("years"), body.get("files")
-            if busy() and (run["handle"] == handle or years is None and files is None):  # a run's last step reads every model
-                return self.reply(409, {"error": f"Still adding @{run['handle']}: wait for it to finish"})
+            if busy(handle) or busy() and years is None and files is None:  # a run's last step reads every model
+                return self.reply(409, {"error": f"Still {doing()}: wait for it to finish"})
             if years is None and files is None:  # the whole model
                 with files_lock:
                     try:
@@ -405,7 +417,7 @@ class Handler(SimpleHTTPRequestHandler):
         if limit is not None and (not isinstance(limit, int) or limit < 1):
             return self.reply(400, {"error": "The post limit must be a whole number, 1 or more"})
         if busy():
-            return self.reply(409, {"error": f"Still adding @{run['handle']}: wait for it to finish"})
+            return self.reply(409, {"error": f"Still {doing()}: wait for it to finish"})
         start(handle, [sys.executable, "-u", str(HERE / "instatagger.py"), handle] + ([str(limit)] if limit else []))
         self.reply(200, {"started": handle})
 

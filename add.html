@@ -34,13 +34,15 @@
 <body>
 <main>
   <p class="back"><a href="/">All models</a> · <a href="/models">Models</a> · <a href="/settings">Settings</a></p>
-  <h1>Add model</h1>
+  <h1 id="title">Add model</h1>
+  <p id="allinfo" class="muted" hidden>Goes through every model in your library, one after another, and fetches and tags only the posts
+    she added since her last run. Each model takes about 1-2 min. At the end you see what each one got.</p>
   <form id="lookup">
     <label>Instagram link or handle<input id="who" required autofocus autocomplete="off" placeholder="Paste a profile link: it's looked up as you paste"></label>
   </form>
   <div id="info"></div>
   <div id="go" hidden>
-    <label><input type="checkbox" id="limited"> Only the newest<input type="number" id="limit" value="100" min="1" step="1">posts</label>
+    <label id="limitrow"><input type="checkbox" id="limited"> Only the newest<input type="number" id="limit" value="100" min="1" step="1">posts</label>
     <p id="eta"></p>
     <p id="skips" class="muted"></p>
     <p id="msg" role="alert"></p>
@@ -58,6 +60,7 @@ let P = null, polling = false, seq = 0, timer;  // P: the looked-up profile
 const api = (path, opts = {}) => fetch(path, {...opts, headers: {"X-Instatagger": "1", "Content-Type": "application/json"}})
   .then(async r => { const j = await r.json(); if (!r.ok) throw new Error(j.error); return j; });
 const fmt = s => s < 90 ? `${Math.round(s)} s` : `${Math.round(s / 60)} min`;
+const ALL = "all models", everyone = new URLSearchParams(location.search).has("all");  // the Update all button
 const handleOf = text => text.trim().split("instagram.com/").pop().split("/")[0].split("?")[0].replace(/^@/, "");
 // an Instagram error that means the saved sessionid stopped working (or there is none)
 const loginHelp = msg => /session|login|401|403|checkpoint|unauthori/i.test(msg) ? ` <a href="/settings">Update your Instagram login in Settings</a>.` : "";
@@ -119,7 +122,21 @@ const detail = (k, m) => !m ? "" : [
   m[1],  // what it's doing now
 ][k];
 
+function showAll(s) {  // an update of every model: her steps for the model being updated, then what each one got
+  const at = s.log.findLastIndex(([, l]) => l.startsWith("== Updating @")), done = s.log.findIndex(([, l]) => l.startsWith("Update all done"));
+  if (done >= 0) {
+    $("runhead").innerHTML = `<b>${esc(s.log[done][1])}</b> (${fmt(s.elapsed)})`;
+    return $("runsteps").innerHTML = s.log.slice(done + 1).map(([, l]) => `<li>${esc(l.trim())}</li>`).join("");
+  }
+  if (s.running) showRun({...s, handle: "", log: s.log.slice(at + 1)});
+  const now = at >= 0 ? s.log[at][1].replace("== Updating ", "") : "";
+  const why = s.log.at(-1)?.[1].trim() || "unknown error";
+  $("runhead").innerHTML = s.running ? `<span class="spin"></span> ${esc(`Updating all models: ${now}, ${fmt(s.elapsed)} so far.`)}`
+    : esc(`Updating all models stopped: ${why}`) + loginHelp(why);
+}
+
 function showRun(s) {  // s.log: [seconds since start, line] from the run's output
+  if (s.handle === ALL) return showAll(s);
   const log = s.log.map(([t, l]) => [t, l.trim()]);
   $("runsteps").innerHTML = STAGES.map(([name, desc, count, ends], k) => {
     const hits = log.filter(([, l]) => count.test(l)), last = hits.at(-1), m = last?.[1].match(count);
@@ -165,7 +182,7 @@ $("start").onclick = async () => {
   $("msg").textContent = "";
   if ($("limited").checked && !(n >= 1)) return $("msg").textContent = "Enter how many posts: 1 or more.";
   try {
-    await api("/api/add", {method: "POST", body: JSON.stringify({u: P.handle, limit: $("limited").checked ? n : null})});
+    await api("/api/add", {method: "POST", body: JSON.stringify(everyone ? {all: true} : {u: P.handle, limit: $("limited").checked ? n : null})});
     $("go").hidden = true;
     poll();
   } catch (err) { $("msg").textContent = err.message; }
@@ -178,6 +195,12 @@ api("/api/settings").then(s => {
 }).catch(() => {});
 $("who").value = new URLSearchParams(location.search).get("u") || "";  // "Add new posts" on the Models page
 if ($("who").value) lookup();
+if (everyone) {
+  document.title = $("title").textContent = "Update all models";
+  $("lookup").hidden = $("limitrow").hidden = true;
+  $("allinfo").hidden = $("go").hidden = false;
+  $("start").textContent = "Update all";
+}
 poll();  // show a run that is already going
 </script>
 </body>

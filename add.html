@@ -123,9 +123,9 @@ const detail = (k, m) => !m ? "" : [
 ][k];
 
 function showAll(s) {  // an update of every model: her steps for the model being updated, then what each one got
-  const at = s.log.findLastIndex(([, l]) => l.startsWith("== Updating @")), done = s.log.findIndex(([, l]) => l.startsWith("Update all done"));
+  const at = s.log.findLastIndex(([, l]) => l.startsWith("== Updating @")), done = s.log.findIndex(([, l]) => /^Update all (done|stopped)/.test(l));
   if (done >= 0) {
-    $("runhead").innerHTML = `<b>${esc(s.log[done][1])}</b> (${fmt(s.elapsed)})`;
+    $("runhead").innerHTML = `<b>${esc(s.log[done][1])}</b> (${fmt(s.elapsed)})` + loginHelp(s.log.slice(done).map(([, l]) => l).join(" "));
     return $("runsteps").innerHTML = s.log.slice(done + 1).map(([, l]) => `<li>${esc(l.trim())}</li>`).join("");
   }
   if (s.running) showRun({...s, handle: "", log: s.log.slice(at + 1)});

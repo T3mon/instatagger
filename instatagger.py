@@ -164,6 +164,7 @@ def list_photos(handle, limit=None, known=(), state=None):
             state["to_end"] |= limit is None or i < limit  # the profile ran out, not the limit
     except instaloader.exceptions.InstaloaderException as e:  # rate limit or expired login halfway: keep what we got
         say(f"Instagram stopped the listing: {e}")
+        state["stopped"] = str(e).split(" when accessing ")[0]  # update() takes it out again before saving the state
     state["listed"] = max(state["listed"], i)
     if not found and not known:
         sys.exit("No photos found (expired session.txt? private profile? wrong handle?)")
@@ -457,7 +458,8 @@ def fetch(handle, limit, out, known, never, state, tagger, tagged, scores):
 
 
 def update(handle, limit=None, retag=False, tagger=None, build=True):
-    """Fetch and tag her posts not in her library yet (or only re-tag). Returns (new photos kept, photos skipped now)."""
+    """Fetch and tag her posts not in her library yet (or only re-tag).
+    Returns (new photos kept, photos skipped now, why Instagram stopped the listing early or None)."""
     out = HERE / "out" / handle
     skipped_file = out / "skipped.json"  # photos the pre-screen threw out: never downloaded again
     skipped = saved_set(skipped_file)
@@ -471,10 +473,12 @@ def update(handle, limit=None, retag=False, tagger=None, build=True):
         if len(wd_old) == len(feat_old) == len(old):
             rows = {it["f"]: k for k, it in enumerate(old)}
     scores, items = {}, old  # scores: file -> (tag scores, image features) of photos tagged on this run
+    stopped = None
     if not retag:
         tagger = tagger or Tagger()  # starts loading now, while posts are listed
         known = {f.rsplit("_", 1)[0] for f in [it["f"] for it in old] + sorted(skipped | removed)}
         new = fetch(handle, limit, out, known, skipped | removed, state, tagger, rows, scores)
+        stopped = state.pop("stopped", None)
         fresh = {it["f"] for it in new}  # keep earlier photos this run didn't reach, e.g. a re-run limited to the newest posts
         items = new + [it for it in old if it["f"] not in fresh and (out / "thumbs" / it["f"]).exists()]
     if not items:
@@ -516,29 +520,33 @@ def update(handle, limit=None, retag=False, tagger=None, build=True):
         print(f"{g}: " + ", ".join(f"{name} {sum(name in it['t'] for it in items)}" for name, _, _ in group))
     print(f"{len(items)} photos -> {out / 'index.html'} | {int(drop.sum())} without a girl skipped and deleted now, {len(skipped)} in total")
     print(f"All models: {HERE / 'out' / 'index.html'}")
-    return len({it["f"] for it in items} - {it["f"] for it in old}), int(drop.sum())
+    return len({it["f"] for it in items} - {it["f"] for it in old}), int(drop.sum()), stopped
 
 
 def update_all():
-    """update() every model in the library, one after another with one tagger, then say what each one got."""
+    """update() every model in the library, one after another with one tagger, then say what each one got.
+    It stops at the first sign Instagram is blocking the account: asking again only keeps the block going."""
     handles = sorted(f.parent.name for f in (HERE / "out").glob("*/data.json"))
-    tagger, got = Tagger(), {}
+    tagger, got, blocked = Tagger(), {}, None
     for i, handle in enumerate(handles, 1):
         say(f"== Updating @{handle} ({i}/{len(handles)})")
         try:
             got[handle] = update(handle, tagger=tagger, build=False)
         except (Exception, SystemExit) as e:  # one model failing doesn't stop the rest
-            got[handle] = str(e) or type(e).__name__
-            say(f"  @{handle} failed: {got[handle]}")
+            got[handle] = (0, 0, str(e) or type(e).__name__)
+        why = got[handle][2]
+        if why and re.search(r"401|403|429|302|wait a few minutes|login|checkpoint", why, re.I):
+            blocked = why
+            break
     print("  building pages", flush=True)
     build_pages()
-    added = {h: g for h, g in got.items() if isinstance(g, tuple) and g[0]}
-    failed = {h: g for h, g in got.items() if isinstance(g, str)}
-    say(f"Update all done: {sum(g[0] for g in added.values())} new photos for {len(added)} of {len(handles)} models")
-    for h, (new, skip) in added.items():
-        say(f"  @{h}: +{new}" + (f" ({skip} without a girl skipped)" if skip else ""))
-    for h, why in failed.items():
-        say(f"  @{h} failed: {why}")
+    new = {h: g for h, g in got.items() if g[0]}
+    head = f"{sum(g[0] for g in new.values())} new photos for {len(new)} of {len(handles)} models"
+    say(f"Update all stopped: Instagram is blocking requests for now, so try again in a few hours. {head}, {len(got)} checked"
+        if blocked else f"Update all done: {head}")
+    for h, (n, skip, why) in got.items():
+        if n or why:
+            say(f"  @{h}: +{n}" + (f" ({skip} without a girl skipped)" if skip else "") + (f", Instagram stopped: {why}" if why else ""))
 
 
 def main():

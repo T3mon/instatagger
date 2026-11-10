@@ -179,18 +179,18 @@ assert abs(page["items"][0]["x"] - 1.9) < 0.01 and "x" not in page["items"][1]
 assert [(page["vocab"][j], pct) for j, pct in page["items"][0]["b"]] == [("1girl", 99), ("beach", 80)]  # no ratings, strongest first
 assert list(np.frombuffer(base64.b64decode(page["items"][0]["e"]), np.int8)) == [76, 0, -102, 0] and "e" not in page["items"][1]
 
-# update_all: every model in turn with one tagger; a failing model doesn't stop the rest; a summary at the end
+# update_all: every model in turn with one tagger; a failing model doesn't stop the rest, Instagram blocking the account does
 with tempfile.TemporaryDirectory() as d:
     instatagger.HERE = Path(d)
-    for h in ["a", "b", "c"]:
+    for h in ["a", "b", "c", "d"]:
         (Path(d) / "out" / h).mkdir(parents=True)
         (Path(d) / "out" / h / "data.json").write_text("{}")
-    got = {"a": (3, 1), "c": (0, 0)}
+    got = {"a": (3, 1, None), "c": (2, 0, "401 Unauthorized - Please wait a few minutes"), "d": (5, 0, None)}
 
     def fake_update(handle, tagger=None, build=True):
         assert tagger == "T" and not build
         if handle == "b":
-            sys.exit("Instagram said no")
+            sys.exit("No photos found")
         return got[handle]
     real = instatagger.update, instatagger.Tagger, instatagger.build_pages
     instatagger.update, instatagger.Tagger, instatagger.build_pages = fake_update, lambda: "T", lambda: None
@@ -199,8 +199,10 @@ with tempfile.TemporaryDirectory() as d:
         instatagger.update_all()
     instatagger.update, instatagger.Tagger, instatagger.build_pages = real
 lines = out.getvalue().splitlines()
-assert "Update all done: 3 new photos for 1 of 3 models" in lines and "  @a: +3 (1 without a girl skipped)" in lines, lines
-assert lines[-1] == "  @b failed: Instagram said no" and "== Updating @c (3/3)" in lines, lines
+assert "== Updating @d (4/4)" not in lines, lines  # blocked at c: d isn't asked for
+assert lines[-4].startswith("Update all stopped: Instagram is blocking") and lines[-4].endswith("5 new photos for 2 of 4 models, 3 checked"), lines
+assert lines[-3:] == ["  @a: +3 (1 without a girl skipped)", "  @b: +0, Instagram stopped: No photos found",
+                      "  @c: +2, Instagram stopped: 401 Unauthorized - Please wait a few minutes"], lines
 
 # serve.py: API needs the X-Instatagger header, checks input, and reports a run's output (a fake run, no Instagram)
 import serve  # noqa: E402

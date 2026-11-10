@@ -61,7 +61,7 @@ const fmt = s => s < 90 ? `${Math.round(s)} s` : `${Math.round(s / 60)} min`;
 const handleOf = text => text.trim().split("instagram.com/").pop().split("/")[0].split("?")[0].replace(/^@/, "");
 // an Instagram error that means the saved sessionid stopped working (or there is none)
 const loginHelp = msg => /session|login|401|403|checkpoint|unauthori/i.test(msg) ? ` <a href="/settings">Update your Instagram login in Settings</a>.` : "";
-const daysAgo =d => { const n = Math.round((Date.now() - Date.parse(d)) / 864e5); return n < 1 ? "today" : n === 1 ? "yesterday" : `${n} days ago`; };
+const daysAgo = d => { const n = Math.round((Date.now() - Date.parse(d)) / 864e5); return n < 1 ? "today" : n === 1 ? "yesterday" : `${n} days ago`; };
 
 function eta() {  // measured on a 100-post run: ~50 s to find her and list the first 12 posts, then ~12 s per page of 33;
   // downloads keep up with the listing; the tagger loads in ~35 s meanwhile and tags ~15 photos/s; ~30 s to finish.

@@ -154,6 +154,7 @@
 </header>
 <section id="modelbar" aria-label="Models" hidden>
   <button class="mbtoggle" id="mbtoggle" aria-expanded="true" aria-controls="mbrow"><span aria-hidden="true">▾</span> <span id="mbsum">Models</span></button>
+  <button class="mbtoggle" id="mball" aria-label="Pick all models, or none if all are picked">All</button>
   <div id="mbrow" role="group" aria-label="Show only these models"></div>
 </section>
 <div class="layout">
@@ -357,6 +358,7 @@ function render() {
     (sel.size || pick.size || spiced || like ? `<button class="linkbtn" id="clear">Clear all</button>` : `<span style="color:var(--muted)">Use + to require a tag, − to exclude it</span>`);
   for (const b of $("mbrow").children) b.setAttribute("aria-pressed", pick.has(b.dataset.h));
   $("mbsum").textContent = pick.size ? `Models · ${pick.size} of ${$("mbrow").children.length}` : "Models";
+  $("mball").textContent = pick.size && pick.size === $("mbrow").children.length ? "None" : "All";
   if ($("tagbox").open) tagList();
   if (!shown.includes(picked)) picked = shown[0] || null;
   const alike = it => it === like ? "Starting photo" : `${Math.round(it.m[0] * 100)}% alike`;
@@ -428,6 +430,12 @@ $("chips").onclick = e => {
   }
   if (b.id === "clear") { sel.clear(); pick.clear(); like = back = null; } else if (b.dataset.t) sel.delete(b.dataset.t);
   else if (b.dataset.h) pick.delete(b.dataset.h);
+  render();
+};
+$("mball").onclick = () => {  // all picked: clear to None; otherwise pick every model
+  const all = pick.size === $("mbrow").children.length;
+  pick.clear();
+  if (!all) for (const b of $("mbrow").children) pick.add(b.dataset.h);
   render();
 };
 $("mbrow").onclick = e => {

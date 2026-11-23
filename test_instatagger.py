@@ -54,56 +54,57 @@ for page, found in [('"page_id":"profilePage_42","profile_id":"42"', "her"), ("n
         assert found is None, page
 instaloader.Profile.from_id = real_from_id
 
-# list_photos on a fake profile (no Instagram calls): newest-N limit, one entry per carousel slide, videos skipped
-day = datetime(2026, 10, 1)
-posts = [
-    types.SimpleNamespace(shortcode="A", typename="GraphImage", is_video=False, url="u/A", likes=5, date_utc=day),
-    types.SimpleNamespace(shortcode="B", typename="GraphSidecar", likes=7, date_utc=day, get_sidecar_nodes=lambda: iter(
-        [instaloader.PostSidecarNode(False, "u/B1", None), instaloader.PostSidecarNode(True, "u/B2", "v/B2")])),
-    types.SimpleNamespace(shortcode="C", typename="GraphImage", is_video=False, url="u/C", likes=1, date_utc=day),
-]
-instaloader.Profile.from_username = lambda context, handle: types.SimpleNamespace(mediacount=3, get_posts=lambda: iter(posts))
-with tempfile.TemporaryDirectory() as d:
-    (Path(d) / "session.txt").write_text("1%3Afake%3A2%3Asig")
-    instatagger.HERE = Path(d)
-    got = list(instatagger.list_photos("someone", 2))
-    assert [(url, it["f"]) for url, it in got] == [("u/A", "A_1.jpg"), ("u/B1", "B_1.jpg")], got
-    # a re-run stops once it's back among known posts, but not at known pinned ones (3 at most) above new posts,
-    # and only when earlier runs reached as far as this one asks
-    post = lambda c: types.SimpleNamespace(shortcode=c, typename="GraphImage", is_video=False, url="u/" + c, likes=1, date_utc=day)
-    posts[:] = [post(c) for c in ["P1", "P2", "N", "K1", "K2", "K3", "K4", "OLD"]]
-    known = {"P1", "P2", "K1", "K2", "K3", "K4"}
-    state = {"listed": 7, "to_end": True}
-    assert [it["c"] for _, it in instatagger.list_photos("someone", None, known, state)] == ["P1", "P2", "N", "K1", "K2", "K3", "K4"]
-    assert state == {"listed": 7, "to_end": True}
-    state = {"listed": 7, "to_end": False}  # earlier runs stopped short of her first post: list it all this time
-    assert len(list(instatagger.list_photos("someone", None, known, state))) == 8 and state == {"listed": 8, "to_end": True}
+# list_photos on a fake app feed (no Instagram calls): newest-N limit, one entry per carousel slide, videos skipped,
+# her id looked up once, pages followed with next_max_id
+def media(code, kind=1, slides=None):
+    sizes = {"candidates": [{"url": f"i/{code}", "width": 1080, "height": 1350}]}
+    return {"code": code, "media_type": kind, "taken_at": 1793491200, "like_count": 9, "image_versions2": sizes,
+            **({"carousel_media": slides} if slides else {})}
 
-    # an update of a model whose id is saved: one request to the app's feed, no profile lookup, when it gets back to
-    # known posts; with more new posts than one feed page, her posts are listed as usual without repeating the feed's
-    def media(code, kind=1, slides=None):
-        sizes = {"candidates": [{"url": f"i/{code}", "width": 1080, "height": 1350}]}
-        return {"code": code, "media_type": kind, "taken_at": 1793491200, "like_count": 9, "image_versions2": sizes,
-                **({"carousel_media": slides} if slides else {})}
-    feed = [media("N1"), media("V", 2), media("N2", 8, [media("s1"), media("s2", 2), media("s3")]), *map(media, ["K1", "K2", "K3", "K4"])]
-    asked = []
-    fake_ctx = types.SimpleNamespace(get_iphone_json=lambda path, params: asked.append(path) or {"items": feed})
-    real_login, instatagger.login = instatagger.login, lambda *a, **k: types.SimpleNamespace(context=fake_ctx)
-    instaloader.Profile.from_username = gone  # the fast path never looks her up
-    state = {"listed": 50, "to_end": True, "id": 42}
-    got = list(instatagger.list_photos("someone", None, {"K1", "K2", "K3", "K4"}, state))
-    assert asked == ["api/v1/feed/user/42/"] and [it["f"] for _, it in got] == ["N1_1.jpg", "N2_1.jpg", "N2_3.jpg", "K1_1.jpg",
-                                                                               "K2_1.jpg", "K3_1.jpg", "K4_1.jpg"], got
-    assert got[0] == ("i/N1", {"c": "N1", "n": 1, "l": 9, "d": "2026-11-01", "f": "N1_1.jpg"}) and state == {"listed": 50, "to_end": True, "id": 42}
-    feed[:] = [media("N1"), media("N2")]  # all new: the listing goes on past them
-    posts[:] = [post(c) for c in ["N1", "N2", "N3", "K1", "K2", "K3", "K4", "OLD"]]
-    instaloader.Profile.from_username = lambda context, handle: types.SimpleNamespace(mediacount=8, userid=42, get_posts=lambda: iter(posts))
-    got = [it["c"] for _, it in instatagger.list_photos("someone", None, {"K1", "K2", "K3", "K4"}, state)]
-    assert got == ["N1", "N2", "N3", "K1", "K2", "K3", "K4"], got
-    state = {"listed": 0, "to_end": False}  # a first run saves her id for later updates
-    list(instatagger.list_photos("someone", None, set(), state))
-    assert state["id"] == 42
-    instatagger.login = real_login
+
+feed, asked = [], []
+
+
+def fake_json(path, params):
+    asked.append((path, params.get("max_id")))
+    if path.endswith("/usernameinfo/"):
+        return {"user": {"pk": "42", "media_count": len(feed)}}
+    start = int(params.get("max_id", 0))  # pages of 2, so paging is tested
+    return {"items": feed[start:start + 2], "more_available": start + 2 < len(feed), "next_max_id": str(start + 2)}
+
+
+real_login = instatagger.login
+instatagger.login = lambda *a, **k: types.SimpleNamespace(context=types.SimpleNamespace(get_iphone_json=fake_json))
+feed[:] = [media("A"), media("B", 8, [media("B1"), media("B2", 2)]), media("C")]
+state = {"listed": 0, "to_end": False}
+got = list(instatagger.list_photos("someone", 2, (), state))
+assert [(url, it["f"]) for url, it in got] == [("i/A", "A_1.jpg"), ("i/B1", "B_1.jpg")], got
+assert got[0][1] == {"c": "A", "n": 1, "l": 9, "d": "2026-11-01", "f": "A_1.jpg"}
+assert asked[0] == ("api/v1/users/someone/usernameinfo/", None) and state == {"listed": 2, "to_end": False, "id": 42, "posts": 3}, state
+# a re-run stops once it's back among known posts, but not at known pinned ones (3 at most) above new posts,
+# and only when earlier runs reached as far as this one asks; the saved id means no lookup
+feed[:] = [*map(media, ["P1", "P2", "N"]), media("V", 2), *map(media, ["K1", "K2", "K3", "K4", "OLD"])]
+known = {"P1", "P2", "K1", "K2", "K3", "K4"}
+asked.clear()
+state = {"listed": 9, "to_end": True, "id": 42}
+assert [it["c"] for _, it in instatagger.list_photos("someone", None, known, state)] == ["P1", "P2", "N", "K1", "K2", "K3", "K4"]
+assert state == {"listed": 9, "to_end": True, "id": 42}, state
+assert all("usernameinfo" not in p for p, _ in asked) and [m for _, m in asked] == [None, "2", "4", "6"], asked
+state = {"listed": 7, "to_end": False, "id": 42}  # earlier runs stopped short of her first post: list it all this time
+assert len(list(instatagger.list_photos("someone", None, known, state))) == 8 and state["listed"] == 9 and state["to_end"]
+state = {"listed": 7, "to_end": False, "id": 42, "new_only": True}  # Update all: only posts newer than her library
+assert len(list(instatagger.list_photos("someone", None, known, state))) == 7 and "new_only" not in state
+
+
+def refused(path, params):
+    raise instaloader.exceptions.ConnectionException('400 Bad Request - "fail" status, message "feedback_required" when accessing x')
+
+
+instatagger.login = lambda *a, **k: types.SimpleNamespace(context=types.SimpleNamespace(get_iphone_json=refused))
+state = {"listed": 0, "to_end": False, "id": 42}
+assert list(instatagger.list_photos("someone", None, {"K1"}, state)) == []
+assert state["stopped"] == '400 Bad Request - "fail" status, message "feedback_required"'
+instatagger.login = real_login
 
 # fetch: listing, downloading and tagging overlap; a failed download is retried; photos tagged before aren't tagged again
 tries, batches = {}, []
@@ -213,8 +214,8 @@ with tempfile.TemporaryDirectory() as d:
         (Path(d) / "out" / h / "data.json").write_text("{}")
     got = {"a": (3, 1, None), "c": (2, 0, '400 Bad Request - "fail" status, message "feedback_required" when accessing https://x'), "d": (5, 0, None)}
 
-    def fake_update(handle, tagger=None, build=True):
-        assert tagger == "T" and not build
+    def fake_update(handle, tagger=None, build=True, new_only=False):
+        assert tagger == "T" and not build and new_only
         if handle == "b":
             sys.exit("No photos found")
         return got[handle]

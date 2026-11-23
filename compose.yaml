@@ -1,0 +1,18 @@
+services:
+  instatagger:
+    build: .
+    image: instatagger
+    container_name: instatagger
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8765:8766"
+    user: "1000:1000"
+    volumes:
+      - .:/app
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

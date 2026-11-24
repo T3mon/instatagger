@@ -230,7 +230,8 @@ class Tagger:
         import torch
         from timm.data import create_transform, resolve_data_config
         dev = "cuda" if torch.cuda.is_available() else "cpu"
-        dtype = torch.float16 if dev == "cuda" else torch.float32
+        # bfloat16 on the GPU: in float16 this model overflows on some GPUs (an RTX 4060 did) and every score comes out NaN
+        dtype = torch.bfloat16 if dev == "cuda" and torch.cuda.is_bf16_supported() else torch.float32
         model = timm.create_model("hf-hub:" + MODEL, pretrained=True).eval().to(dev, dtype)
         return torch, model, create_transform(**resolve_data_config(model.pretrained_cfg, model=model)), dev, dtype
 
@@ -481,7 +482,8 @@ def update(handle, limit=None, retag=False, tagger=None, build=True, new_only=Fa
     if (out / "wd.npy").exists() and (out / "feat.npy").exists():
         wd_old, feat_old = np.load(out / "wd.npy"), np.load(out / "feat.npy")
         if len(wd_old) == len(feat_old) == len(old):
-            rows = {it["f"]: k for k, it in enumerate(old)}
+            broken = np.isnan(wd_old).any(1) | np.isnan(feat_old).any(1)  # tagged by a float16 GPU run that overflowed
+            rows = {it["f"]: k for k, it in enumerate(old) if not broken[k]}
     scores, items = {}, old  # scores: file -> (tag scores, image features) of photos tagged on this run
     stopped = None
     if not retag:

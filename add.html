@@ -36,7 +36,8 @@
   <p class="back"><a href="/">All models</a> · <a href="/models">Models</a> · <a href="/settings">Settings</a></p>
   <h1 id="title">Add model</h1>
   <p id="allinfo" class="muted" hidden>Goes through every model in your library, one after another, and fetches and tags only the posts
-    she added since her last run. Once a model has been updated this way, checking her takes a single Instagram request.
+    she added since her last run. Each one stops as soon as it reaches posts already in her library,
+    usually after one or two pages of 12 posts.
     At the end you see what each one got.</p>
   <form id="lookup">
     <label>Instagram link or handle<input id="who" required autofocus autocomplete="off" placeholder="Paste a profile link: it's looked up as you paste"></label>
@@ -107,7 +108,7 @@ async function lookup() {
 // name, what it does, its progress line, the line that says it's done. The first three overlap: each photo is
 // downloaded as soon as the listing finds it and tagged as soon as it's in
 const STAGES = [
-  ["Listing posts", "Going through her posts on Instagram, one page every 6-12 s so your account doesn't get flagged. Videos and reels are skipped.",
+  ["Listing posts", "Going through her posts on Instagram, 12 per page, with a 6-12 s pause between pages so your account doesn't get flagged. Videos and reels are skipped.",
     /^(\d+)\/(\d+) posts listed, (\d+) photos found/, /the rest are already in her library|stopped the listing|^Step 2\//],
   ["Downloading photos", "Starts with the first photos found, 8 at a time, in the smallest size that's still sharp enough to tag; each becomes a 360 px preview. Failed downloads get one retry at the end.",
     /^(\d+)\/(\d+) (photos downloaded|failed photos retried)/, /photos downloaded, \d+ failed/],

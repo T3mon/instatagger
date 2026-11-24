@@ -86,14 +86,18 @@ assert asked[0] == ("api/v1/users/someone/usernameinfo/", None) and state == {"l
 feed[:] = [*map(media, ["P1", "P2", "N"]), media("V", 2), *map(media, ["K1", "K2", "K3", "K4", "OLD"])]
 known = {"P1", "P2", "K1", "K2", "K3", "K4"}
 asked.clear()
-state = {"listed": 9, "to_end": True, "id": 42}
+state = {"listed": 9, "to_end": True, "id": 42, "posts": 9}
 assert [it["c"] for _, it in instatagger.list_photos("someone", None, known, state)] == ["P1", "P2", "N", "K1", "K2", "K3", "K4"]
-assert state == {"listed": 9, "to_end": True, "id": 42}, state
+assert state == {"listed": 9, "to_end": True, "id": 42, "posts": 9}, state
 assert all("usernameinfo" not in p for p, _ in asked) and [m for _, m in asked] == [None, "2", "4", "6"], asked
-state = {"listed": 7, "to_end": False, "id": 42}  # earlier runs stopped short of her first post: list it all this time
+state = {"listed": 7, "to_end": False, "id": 42, "posts": 9}  # earlier runs stopped short of her first post: list it all this time
 assert len(list(instatagger.list_photos("someone", None, known, state))) == 8 and state["listed"] == 9 and state["to_end"]
-state = {"listed": 7, "to_end": False, "id": 42, "new_only": True}  # Update all: only posts newer than her library
+state = {"listed": 7, "to_end": False, "id": 42, "posts": 9, "new_only": True}  # Update all: only posts newer than her library
 assert len(list(instatagger.list_photos("someone", None, known, state))) == 7 and "new_only" not in state
+asked.clear()  # an id saved before post counts were: her count is looked up once, for the progress line
+state = {"listed": 9, "to_end": True, "id": 42}
+list(instatagger.list_photos("someone", None, known, state))
+assert asked[0] == ("api/v1/users/someone/usernameinfo/", None) and state["posts"] == 9, (asked, state)
 
 
 def refused(path, params):

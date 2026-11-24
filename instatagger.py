@@ -147,7 +147,7 @@ def list_photos(handle, limit=None, known=(), state=None):
     found = i = 0
     covered = state.pop("new_only", False) or (state["to_end"] if limit is None else state["listed"] >= limit)
     try:
-        if not state.get("id"):  # looked up once, then saved with her library
+        if not state.get("id") or "posts" not in state:  # looked up once, then saved with her library
             user = L.context.get_iphone_json(f"api/v1/users/{handle}/usernameinfo/", {})["user"]
             state["id"], state["posts"] = int(user["pk"]), user.get("media_count") or 0
         posts = state.get("posts") or 0
